@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "825758608786",
+    "project_id": "khdrcars-v17-test",
+    "storage_bucket": "khdrcars-v17-test.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:825758608786:android:42fb1da75bbeafe0e5254b",
+        "android_client_info": {
+          "package_name": "com.example.alkhudor_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCimOTu91uLmsFHH3KafAiy64ZXViZPd_U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
