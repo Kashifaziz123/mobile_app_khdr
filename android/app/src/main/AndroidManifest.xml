@@ -32,7 +32,7 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data
                     android:scheme="https"
-                    android:host="unnervous-supplicatingly-rosanna.ngrok-free.dev"/>
+                    android:host="khdrcars.com"/>
             </intent-filter>
             <intent-filter>
                 <action android:name="FLUTTER_NOTIFICATION_CLICK"/>

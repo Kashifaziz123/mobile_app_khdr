@@ -12,7 +12,8 @@ import 'package:app_links/app_links.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 const appTitle = 'Alkhudor';
-const fixedBaseUrl = 'https://unnervous-supplicatingly-rosanna.ngrok-free.dev';
+const fixedBaseUrl = 'https://khdrcars.com';
+const fixedDatabaseName = 'khdrcars';
 // AlKhoder Autocar logo asset
 const logoImageAsset = 'assets/logo.png';
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -169,9 +170,13 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
   final _dbController = TextEditingController();
   final _loginController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _totpController = TextEditingController();
 
   bool _isChecking = false;
   bool _isLoggingIn = false;
+  bool _showTwoFactor = false;
+  bool _stopAfterAuthResponse = false;
+  bool _handledTotpNavigation = false;
   List<String> _databases = [];
   String? _selectedDb;
   String? _statusMessageKey;
@@ -184,6 +189,9 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
   void initState() {
     super.initState();
     _baseUrlController.text = fixedBaseUrl;
+    _dbController.text = fixedDatabaseName;
+    _selectedDb = fixedDatabaseName;
+    _databases = [fixedDatabaseName];
     _pendingLink = widget.initialLink;
     // Auto-check link on mount
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -230,6 +238,19 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
     return errorMessage;
   }
 
+  static String? _extractOdooErrorMessage(Map<String, dynamic> errorData) {
+    // 1) error.data.message
+    final data = errorData['data'];
+    if (data is Map && data['message'] != null) {
+      return data['message'].toString();
+    }
+    // 2) error.message
+    if (errorData['message'] != null) {
+      return errorData['message'].toString();
+    }
+    return null;
+  }
+
   String? _getStatusMessage() {
     if (_statusMessageKey == null) return null;
     switch (_statusMessageKey) {
@@ -258,6 +279,10 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
           return _translateOdooError(_statusMessageExtra!);
         }
         return _text('Login failed', 'فشل تسجيل الدخول');
+      case 'login_failed_raw':
+        return _statusMessageExtra ?? _text('Login failed', 'فشل تسجيل الدخول');
+      case 'login_success':
+        return _text('Login success', 'تم تسجيل الدخول بنجاح');
       case 'link_unavailable':
         return _text('Server is not accessible. Please try again in a few minutes.', 'الخادم غير متاح. يرجى المحاولة مرة أخرى بعد بضع دقائق.');
       case 'db_not_selected':
@@ -308,6 +333,7 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
     _dbController.dispose();
     _loginController.dispose();
     _passwordController.dispose();
+    _totpController.dispose();
     super.dispose();
   }
 
@@ -342,22 +368,11 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
     });
 
     try {
-      final dbs = await OdooApi.fetchDatabases(baseUrl);
       setState(() {
-        _databases = dbs;
-        if (dbs.isNotEmpty) {
-          _selectedDb = dbs.first;
-        }
-        if (dbs.isEmpty) {
-          _statusMessageKey = 'db_listing_disabled';
-          _statusMessageExtra = null;
-        } else if (dbs.length == 1) {
-          _statusMessageKey = 'server_ok_single';
-          _statusMessageExtra = null;
-        } else {
-          _statusMessageKey = 'server_ok_multiple';
-          _statusMessageExtra = null;
-        }
+        _databases = [fixedDatabaseName];
+        _selectedDb = fixedDatabaseName;
+        _statusMessageKey = 'server_ok_single';
+        _statusMessageExtra = null;
       });
     } on SocketException catch (e) {
       setState(() {
@@ -418,47 +433,10 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
 
       // Verify server is accessible
       try {
-        final dbs = await OdooApi.fetchDatabases(baseUrl);
-        
-        // Update databases list
         setState(() {
-          _databases = dbs;
-          if (dbs.isNotEmpty && _selectedDb == null) {
-            _selectedDb = dbs.first;
-          }
+          _databases = [fixedDatabaseName];
+          _selectedDb = fixedDatabaseName;
         });
-        
-        // Check if database is selected/available
-        final db = _selectedDb ?? _dbController.text.trim();
-        if (db.isEmpty) {
-          if (dbs.isEmpty) {
-            setState(() {
-              _statusMessageKey = 'db_required';
-              _statusMessageExtra = null;
-              _isLoggingIn = false;
-            });
-            return;
-          } else if (dbs.length > 1) {
-            setState(() {
-              _statusMessageKey = 'db_not_selected';
-              _statusMessageExtra = null;
-              _isLoggingIn = false;
-            });
-            return;
-          } else {
-            // Auto-select if only one DB
-            setState(() {
-              _selectedDb = dbs.first;
-            });
-          }
-        } else if (dbs.isNotEmpty && !dbs.contains(db)) {
-          setState(() {
-            _statusMessageKey = 'db_not_found';
-            _statusMessageExtra = null;
-            _isLoggingIn = false;
-          });
-          return;
-        }
       } on SocketException catch (e) {
         setState(() {
           _statusMessageKey = 'link_unavailable';
@@ -519,7 +497,101 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
         login: _loginController.text.trim(),
         password: _passwordController.text,
         totp: totp,
+        onRawResponse: (url, body, headers) async {
+          if (!mounted) {
+            return;
+          }
+          try {
+            final decoded = jsonDecode(body);
+            if (decoded is Map<String, dynamic>) {
+              _stopAfterAuthResponse = true;
+              final error = decoded['error'];
+              final result = decoded['result'];
+              final uidValue = result is Map ? result['uid'] : null;
+              final uidString = uidValue?.toString();
+
+              if (error is Map) {
+                final errorMessage = _extractOdooErrorMessage(
+                  error.cast<String, dynamic>(),
+                );
+                if (errorMessage != null) {
+                  setState(() {
+                    _statusMessageKey = 'login_failed_raw';
+                    _statusMessageExtra = errorMessage;
+                  });
+                  return;
+                }
+              }
+              if (result is Map &&
+                  (uidString == null || uidString == 'null')) {
+                setState(() {
+                  _showTwoFactor = true;
+                  _statusMessageKey = '2fa_required';
+                  _statusMessageExtra = null;
+                });
+                final sessionId =
+                    OdooApi.extractSessionIdFromHeaders(headers);
+                if (sessionId != null) {
+                  await WebViewCookieManager().setCookie(
+                    WebViewCookie(
+                      name: 'session_id',
+                      value: sessionId,
+                      domain: Uri.parse(baseUrl).host,
+                      path: '/',
+                    ),
+                  );
+                }
+                _handledTotpNavigation = true;
+                if (mounted) {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (_) => OdooWebViewPage(
+                        baseUrl: baseUrl,
+                        initialUrl: '$baseUrl/web/login/totp',
+                      ),
+                    ),
+                  );
+                }
+                return;
+              }
+              if (result is Map && uidString != null) {
+                setState(() {
+                  _statusMessageKey = 'login_success';
+                  _statusMessageExtra = null;
+                });
+                return;
+              }
+              setState(() {
+                _statusMessageKey = 'login_failed';
+                _statusMessageExtra = 'error code 139';
+              });
+              return;
+            }
+          } catch (_) {
+            setState(() {
+              _statusMessageKey = 'login_failed';
+              _statusMessageExtra = 'error 179';
+            });
+            return;
+          }
+        },
       );
+
+      if (_stopAfterAuthResponse) {
+        if (_statusMessageKey == 'login_success') {
+          await Future.delayed(const Duration(seconds: 1));
+          _stopAfterAuthResponse = false;
+        } else {
+          await Future.delayed(const Duration(seconds: 1));
+          _stopAfterAuthResponse = false;
+          return;
+        }
+      }
+
+      if (_handledTotpNavigation) {
+        _handledTotpNavigation = false;
+        return;
+      }
 
       await WebViewCookieManager().setCookie(
         WebViewCookie(
@@ -559,22 +631,13 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
         ),
       );
     } on OdooTwoFactorRequiredException {
-      // Navigate to Odoo's own 2FA page instead of custom Flutter page
       setState(() {
         _isLoggingIn = false;
-        _statusMessageKey = null;
+        _showTwoFactor = true;
+        _statusMessageKey = '2fa_required';
         _statusMessageExtra = null;
       });
-      
-      // Navigate to Odoo login page which will show 2FA form
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => OdooWebViewPage(
-            baseUrl: baseUrl,
-            initialUrl: '$baseUrl/web/login?db=${Uri.encodeComponent(db)}&login=${Uri.encodeComponent(_loginController.text.trim())}',
-          ),
-        ),
-      );
+      return;
     } catch (error) {
       // Extract the actual error message from Odoo
       String errorMessage = error.toString();
@@ -1008,51 +1071,64 @@ class _TwoFactorPageState extends State<TwoFactorPage> {
 }
 
 class OdooApi {
+  static String? _extractOdooErrorMessage(Map<String, dynamic> errorData) {
+    final data = errorData['data'];
+    if (data is Map && data['message'] != null) {
+      return data['message'].toString();
+    }
+    if (errorData['message'] != null) {
+      return errorData['message'].toString();
+    }
+    return null;
+  }
+
   static Future<List<String>> fetchDatabases(String baseUrl) async {
-    final uri = Uri.parse('$baseUrl/web/database/list');
-    http.Response response;
-    try {
-      response = await http.post(
-        uri,
-        headers: const {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'jsonrpc': '2.0',
-          'method': 'call',
-          'params': {},
-        }),
-      ).timeout(const Duration(seconds: 10));
-    } on SocketException {
-      rethrow;
-    } on HttpException {
-      rethrow;
-    } on TimeoutException {
-      throw HttpException('Connection timeout');
-    } catch (e) {
-      throw HttpException('Failed to connect: $e');
-    }
-
-    if (response.statusCode == 404) {
-      throw HttpException('Server endpoint not found');
-    }
-    
-    if (response.statusCode != 200) {
-      throw HttpException('Server returned error: ${response.statusCode}');
-    }
-
-    try {
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (data['error'] != null) {
-        throw Exception((data['error'] as Map)['message'] ?? 'Unknown error');
-      }
-
-      final result = (data['result'] as List).cast<String>();
-      return result;
-    } catch (e) {
-      if (e is HttpException || e is SocketException) {
-        rethrow;
-      }
-      throw Exception('Invalid server response: $e');
-    }
+    // API fetchDatabases temporarily disabled.
+    // final uri = Uri.parse('$baseUrl/web/database/list');
+    // http.Response response;
+    // try {
+    //   response = await http.post(
+    //     uri,
+    //     headers: const {'Content-Type': 'application/json'},
+    //     body: jsonEncode({
+    //       'jsonrpc': '2.0',
+    //       'method': 'call',
+    //       'params': {},
+    //     }),
+    //   ).timeout(const Duration(seconds: 10));
+    // } on SocketException {
+    //   rethrow;
+    // } on HttpException {
+    //   rethrow;
+    // } on TimeoutException {
+    //   throw HttpException('Connection timeout');
+    // } catch (e) {
+    //   throw HttpException('Failed to connect: $e');
+    // }
+    //
+    // if (response.statusCode == 404) {
+    //   throw HttpException('Server endpoint not found');
+    // }
+    //
+    // if (response.statusCode != 200) {
+    //   throw HttpException('Server returned error: ${response.statusCode}');
+    // }
+    //
+    // try {
+    //   final data = jsonDecode(response.body) as Map<String, dynamic>;
+    //   if (data['error'] != null) {
+    //     throw Exception((data['error'] as Map)['message'] ?? 'Unknown error');
+    //   }
+    //
+    //   final result = (data['result'] as List).cast<String>();
+    //   return result;
+    // } catch (e) {
+    //   if (e is HttpException || e is SocketException) {
+    //     rethrow;
+    //   }
+    //   throw Exception('Invalid server response: $e');
+    // }
+    return [fixedDatabaseName];
   }
 
   static Future<OdooSession> authenticate({
@@ -1061,6 +1137,8 @@ class OdooApi {
     required String login,
     required String password,
     String? totp,
+    Future<void> Function(String url, String body, Map<String, String> headers)?
+        onRawResponse,
   }) async {
     final uri = Uri.parse('$baseUrl/web/session/authenticate');
     final params = {
@@ -1080,6 +1158,10 @@ class OdooApi {
       }),
     );
 
+    if (onRawResponse != null) {
+      await onRawResponse(uri.toString(), response.body, response.headers);
+    }
+
     if (response.statusCode != 200) {
       throw Exception('HTTP ${response.statusCode}');
     }
@@ -1090,54 +1172,20 @@ class OdooApi {
         throw OdooTwoFactorRequiredException();
       }
       
-      // Extract Odoo error message - try multiple formats
+      // Extract Odoo error message (1) error.data.message, (2) error.message
       final errorData = data['error'] as Map<String, dynamic>;
-      String? errorMessage;
-      
-      // Try direct message
-      if (errorData['message'] != null) {
-        errorMessage = errorData['message'].toString();
-      }
-      // Try nested data.message
-      else if (errorData['data'] != null && errorData['data'] is Map) {
-        final nestedData = errorData['data'] as Map;
-        if (nestedData['message'] != null) {
-          errorMessage = nestedData['message'].toString();
-        } else if (nestedData['name'] != null) {
-          errorMessage = nestedData['name'].toString();
-        }
-      }
-      // Try data.name
-      else if (errorData['name'] != null) {
-        errorMessage = errorData['name'].toString();
-      }
-      // Try data field directly
-      else if (errorData['data'] != null) {
-        errorMessage = errorData['data'].toString();
-      }
-      
-      // If we have a message, throw it; otherwise use the whole error
+      final errorMessage = _extractOdooErrorMessage(errorData);
       if (errorMessage != null && errorMessage.isNotEmpty) {
-        // Clean up the error message - remove any "Exception: " prefix
-        String cleanMessage = errorMessage;
-        if (cleanMessage.startsWith('Exception: ')) {
-          cleanMessage = cleanMessage.substring(11);
-        }
-        // Remove "Odoo Server Error: " prefix if present
-        if (cleanMessage.startsWith('Odoo Server Error: ')) {
-          cleanMessage = cleanMessage.substring(20);
-        }
-        throw Exception(cleanMessage);
-      } else {
-        throw Exception('Odoo Server Error: ${errorData.toString()}');
+        throw Exception(errorMessage);
       }
+      throw Exception('Odoo Exception Error: ${errorData.toString()}');
     }
 
     final result = data['result'];
     if (result is Map) {
       final uid = result['uid'];
-      final uidString = uid?.toString().toLowerCase();
-      if (uidString == 'null' || uidString == 'false' || uidString == '0') {
+      final uidString = uid;
+      if (uidString == null) {
         throw OdooTwoFactorRequiredException();
       }
       
@@ -1198,6 +1246,12 @@ class OdooApi {
     }
     final match = RegExp(r'session_id=([^;]+)').firstMatch(setCookieHeader);
     return match?.group(1);
+  }
+
+  static String? extractSessionIdFromHeaders(
+    Map<String, String> headers,
+  ) {
+    return _extractSessionId(headers['set-cookie']);
   }
 }
 
@@ -1453,6 +1507,7 @@ class _OdooWebViewPageState extends State<OdooWebViewPage> {
   late final WebViewController _controller;
   int _loadingProgress = 0;
   bool _logoutHandled = false;
+  bool _loginHandled = false;
 
   @override
   void initState() {
@@ -1464,6 +1519,10 @@ class _OdooWebViewPageState extends State<OdooWebViewPage> {
           ..setNavigationDelegate(
             NavigationDelegate(
               onNavigationRequest: (request) {
+                if (_isLoginUrl(request.url)) {
+                  _handleLoginRedirect();
+                  return NavigationDecision.prevent;
+                }
                 if (_isLogoutUrl(request.url)) {
                   _handleLogout();
                   return NavigationDecision.prevent;
@@ -1507,11 +1566,39 @@ class _OdooWebViewPageState extends State<OdooWebViewPage> {
     return path.contains('/web/session/logout');
   }
 
+  bool _isLoginUrl(String url) {
+    if (_loginHandled) {
+      return false;
+    }
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      return false;
+    }
+    final path = uri.path.toLowerCase();
+    return path.contains('/web/login');
+  }
+
   Future<void> _handleLogout() async {
     if (_logoutHandled) {
       return;
     }
     _logoutHandled = true;
+    await SessionStore.clearSession();
+    await WebViewCookieManager().clearCookies();
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const OdooSetupPage()),
+      (route) => false,
+    );
+  }
+
+  Future<void> _handleLoginRedirect() async {
+    if (_loginHandled) {
+      return;
+    }
+    _loginHandled = true;
     await SessionStore.clearSession();
     await WebViewCookieManager().clearCookies();
     if (!mounted) {
@@ -1536,22 +1623,15 @@ class _OdooWebViewPageState extends State<OdooWebViewPage> {
     return WillPopScope(
       onWillPop: _handleBackPress,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text(appTitle),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: () => _controller.reload(),
-              tooltip: 'Reload',
-            ),
-          ],
-        ),
-        body: Stack(
-          children: [
-            WebViewWidget(controller: _controller),
-            if (_loadingProgress < 100)
-              LinearProgressIndicator(value: _loadingProgress / 100),
-          ],
+        body: SafeArea(
+          top: true,
+          child: Stack(
+            children: [
+              WebViewWidget(controller: _controller),
+              if (_loadingProgress < 100)
+                LinearProgressIndicator(value: _loadingProgress / 100),
+            ],
+          ),
         ),
       ),
     );
