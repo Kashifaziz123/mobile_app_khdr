@@ -150,7 +150,8 @@ class _AppBootstrapState extends State<AppBootstrap> {
     }
     return OdooWebViewPage(
       baseUrl: _session!.baseUrl,
-      initialUrl: LinkResolver.resolve(_session!.baseUrl, _pendingLink),
+      initialUrl: LinkResolver.resolve(_session!.baseUrl, _pendingLink) ??
+          LinkResolver.webClientUrl(_session!.baseUrl),
     );
   }
 }
@@ -626,7 +627,8 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
         MaterialPageRoute(
           builder: (_) => OdooWebViewPage(
             baseUrl: baseUrl,
-            initialUrl: LinkResolver.resolve(baseUrl, _pendingLink),
+            initialUrl: LinkResolver.resolve(baseUrl, _pendingLink) ??
+                LinkResolver.webClientUrl(baseUrl, forceReload: true),
           ),
         ),
       );
@@ -1328,6 +1330,13 @@ class LinkResolver {
     }
     return '$baseUrl/$link';
   }
+
+  static String webClientUrl(String baseUrl, {bool forceReload = false}) {
+    if (forceReload) {
+      return '$baseUrl/web?${DateTime.now().millisecondsSinceEpoch}=0';
+    }
+    return '$baseUrl/web';
+  }
 }
 
 class NotificationCoordinator {
@@ -1361,6 +1370,8 @@ class NotificationCoordinator {
       return;
     }
     final url = LinkResolver.resolve(session.baseUrl, link) ?? session.baseUrl;
+    final resolvedUrl =
+        url == session.baseUrl ? LinkResolver.webClientUrl(session.baseUrl) : url;
     await WebViewCookieManager().setCookie(
       WebViewCookie(
         name: 'session_id',
@@ -1373,7 +1384,7 @@ class NotificationCoordinator {
       MaterialPageRoute(
         builder: (_) => OdooWebViewPage(
           baseUrl: session.baseUrl,
-          initialUrl: url,
+          initialUrl: resolvedUrl,
         ),
       ),
       (route) => false,
