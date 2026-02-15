@@ -12,8 +12,7 @@ import 'package:app_links/app_links.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 const appTitle = 'Alkhudor';
-const fixedBaseUrl = 'https://khdrcars.com';
-const fixedDatabaseName = 'khdrcars';
+const fixedBaseUrl = 'https://unnervous-supplicatingly-rosanna.ngrok-free.dev';
 // AlKhoder Autocar logo asset
 const logoImageAsset = 'assets/logo.png';
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -190,9 +189,6 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
   void initState() {
     super.initState();
     _baseUrlController.text = fixedBaseUrl;
-    _dbController.text = fixedDatabaseName;
-    _selectedDb = fixedDatabaseName;
-    _databases = [fixedDatabaseName];
     _pendingLink = widget.initialLink;
     // Auto-check link on mount
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -369,10 +365,22 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
     });
 
     try {
+      final databases = await OdooApi.fetchDatabases(baseUrl);
       setState(() {
-        _databases = [fixedDatabaseName];
-        _selectedDb = fixedDatabaseName;
-        _statusMessageKey = 'server_ok_single';
+        _databases = databases;
+        if (databases.isEmpty) {
+          _selectedDb = null;
+          _dbController.clear();
+          _statusMessageKey = 'db_listing_disabled';
+        } else if (databases.length == 1) {
+          _selectedDb = databases.first;
+          _dbController.text = databases.first;
+          _statusMessageKey = 'server_ok_single';
+        } else {
+          _selectedDb = null;
+          _dbController.clear();
+          _statusMessageKey = 'server_ok_multiple';
+        }
         _statusMessageExtra = null;
       });
     } on SocketException catch (e) {
@@ -434,9 +442,25 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
 
       // Verify server is accessible
       try {
+        final databases = await OdooApi.fetchDatabases(baseUrl);
+        if (databases.isEmpty) {
+          setState(() {
+            _statusMessageKey = 'db_listing_disabled';
+            _statusMessageExtra = null;
+            _isLoggingIn = false;
+          });
+          return;
+        }
         setState(() {
-          _databases = [fixedDatabaseName];
-          _selectedDb = fixedDatabaseName;
+          _databases = databases;
+          if (databases.length == 1) {
+            _selectedDb = databases.first;
+            _dbController.text = databases.first;
+          } else if (_selectedDb != null &&
+              !databases.contains(_selectedDb)) {
+            _selectedDb = null;
+            _dbController.clear();
+          }
         });
       } on SocketException catch (e) {
         setState(() {
@@ -673,6 +697,7 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
   @override
   Widget build(BuildContext context) {
     final hasMultipleDatabases = _databases.length > 1;
+    final hasNoDatabases = _databases.isEmpty;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -788,6 +813,31 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                                if (hasNoDatabases)
+                                  TextFormField(
+                                    controller: _dbController,
+                                    decoration: _inputDecoration(
+                                      label: _text('Database', 'قاعدة البيانات'),
+                                      placeholder: _text(
+                                        'Enter database name',
+                                        'أدخل اسم قاعدة البيانات',
+                                      ),
+                                      icon: Icons.storage,
+                                    ),
+                                    textInputAction: TextInputAction.next,
+                                    validator: (value) {
+                                      if (value == null ||
+                                          value.trim().isEmpty) {
+                                        return _text(
+                                          'Enter database name',
+                                          'أدخل اسم قاعدة البيانات',
+                                        );
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                if (hasNoDatabases)
+                                  const SizedBox(height: 10),
                                 if (hasMultipleDatabases)
                                   DropdownButtonFormField<String>(
                                     value: _selectedDb,
@@ -1085,52 +1135,50 @@ class OdooApi {
   }
 
   static Future<List<String>> fetchDatabases(String baseUrl) async {
-    // API fetchDatabases temporarily disabled.
-    // final uri = Uri.parse('$baseUrl/web/database/list');
-    // http.Response response;
-    // try {
-    //   response = await http.post(
-    //     uri,
-    //     headers: const {'Content-Type': 'application/json'},
-    //     body: jsonEncode({
-    //       'jsonrpc': '2.0',
-    //       'method': 'call',
-    //       'params': {},
-    //     }),
-    //   ).timeout(const Duration(seconds: 10));
-    // } on SocketException {
-    //   rethrow;
-    // } on HttpException {
-    //   rethrow;
-    // } on TimeoutException {
-    //   throw HttpException('Connection timeout');
-    // } catch (e) {
-    //   throw HttpException('Failed to connect: $e');
-    // }
-    //
-    // if (response.statusCode == 404) {
-    //   throw HttpException('Server endpoint not found');
-    // }
-    //
-    // if (response.statusCode != 200) {
-    //   throw HttpException('Server returned error: ${response.statusCode}');
-    // }
-    //
-    // try {
-    //   final data = jsonDecode(response.body) as Map<String, dynamic>;
-    //   if (data['error'] != null) {
-    //     throw Exception((data['error'] as Map)['message'] ?? 'Unknown error');
-    //   }
-    //
-    //   final result = (data['result'] as List).cast<String>();
-    //   return result;
-    // } catch (e) {
-    //   if (e is HttpException || e is SocketException) {
-    //     rethrow;
-    //   }
-    //   throw Exception('Invalid server response: $e');
-    // }
-    return [fixedDatabaseName];
+    final uri = Uri.parse('$baseUrl/web/database/list');
+    http.Response response;
+    try {
+      response = await http.post(
+        uri,
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'jsonrpc': '2.0',
+          'method': 'call',
+          'params': {},
+        }),
+      ).timeout(const Duration(seconds: 10));
+    } on SocketException {
+      rethrow;
+    } on HttpException {
+      rethrow;
+    } on TimeoutException {
+      throw HttpException('Connection timeout');
+    } catch (e) {
+      throw HttpException('Failed to connect: $e');
+    }
+
+    if (response.statusCode == 404) {
+      throw HttpException('Server endpoint not found');
+    }
+
+    if (response.statusCode != 200) {
+      throw HttpException('Server returned error: ${response.statusCode}');
+    }
+
+    try {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['error'] != null) {
+        throw Exception((data['error'] as Map)['message'] ?? 'Unknown error');
+      }
+
+      final result = (data['result'] as List).cast<String>();
+      return result;
+    } catch (e) {
+      if (e is HttpException || e is SocketException) {
+        rethrow;
+      }
+      throw Exception('Invalid server response: $e');
+    }
   }
 
   static Future<OdooSession> authenticate({
