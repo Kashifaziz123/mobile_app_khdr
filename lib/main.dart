@@ -350,6 +350,25 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
     return uri.origin;
   }
 
+  void _openResetPassword() {
+    final baseUrl = _normalizeBaseUrl(_baseUrlController.text);
+    if (baseUrl.isEmpty) {
+      setState(() {
+        _statusMessageKey = 'enter_valid_url';
+        _statusMessageExtra = null;
+      });
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => OdooWebViewPage(
+          baseUrl: baseUrl,
+          initialUrl: '$baseUrl/web/reset_password',
+        ),
+      ),
+    );
+  }
+
   Future<void> _checkLink() async {
     final baseUrl = _normalizeBaseUrl(_baseUrlController.text);
     if (baseUrl.isEmpty) {
@@ -889,7 +908,7 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
                                       ? Alignment.centerLeft
                                       : Alignment.centerRight,
                                   child: TextButton(
-                                    onPressed: () {},
+                                    onPressed: _openResetPassword,
                                     style: TextButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(vertical: 4),
                                     ),
