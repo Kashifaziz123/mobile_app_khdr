@@ -69,11 +69,7 @@ Future<void> _configureNotificationChannels() async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
     await Firebase.initializeApp();
-  } catch (error) {
-    debugPrint('Firebase initialization failed: $error');
-  }
   FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundHandler);
   await _configureNotificationChannels();
   runApp(const MyApp());
@@ -115,8 +111,18 @@ class _AppBootstrapState extends State<AppBootstrap> {
   }
 
   Future<void> _initialize() async {
-    await NotificationCoordinator.init(appNavigatorKey);
-    await LinkCoordinator.init(appNavigatorKey);
+    try {
+      await NotificationCoordinator.init(appNavigatorKey)
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('NotificationCoordinator init timed out or failed: $e');
+    }
+    try {
+      await LinkCoordinator.init(appNavigatorKey)
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('LinkCoordinator init timed out or failed: $e');
+    }
     final session = await SessionStore.loadSession();
     final pendingLink = await SessionStore.consumePendingLink();
     if (session != null) {
@@ -1369,9 +1375,15 @@ class NotificationCoordinator {
     FirebaseMessaging.onMessageOpenedApp.listen(
       (message) => _handleMessage(message, navigatorKey),
     );
-    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
-    if (initialMessage != null) {
-      await _handleMessage(initialMessage, navigatorKey);
+    try {
+      final initialMessage = await FirebaseMessaging.instance
+          .getInitialMessage()
+          .timeout(const Duration(seconds: 3));
+      if (initialMessage != null) {
+        await _handleMessage(initialMessage, navigatorKey);
+      }
+    } catch (e) {
+      debugPrint('getInitialMessage timed out or failed: $e');
     }
   }
 
@@ -1430,7 +1442,8 @@ class LinkCoordinator {
     }
     _initialized = true;
     try {
-      final initialUri = await _appLinks.getInitialLink();
+      final initialUri = await _appLinks.getInitialLink()
+          .timeout(const Duration(seconds: 3));
       if (initialUri != null) {
         await _handleLink(initialUri.toString(), navigatorKey);
       }
