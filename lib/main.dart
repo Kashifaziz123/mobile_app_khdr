@@ -69,9 +69,19 @@ Future<void> _configureNotificationChannels() async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-    await Firebase.initializeApp();
+  await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundHandler);
   await _configureNotificationChannels();
+
+  // iOS: show banners/sound/badge even when app is in the foreground
+  if (Platform.isIOS) {
+    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+  }
+
   runApp(const MyApp());
 }
 
@@ -1502,7 +1512,19 @@ class FcmRegistration {
     final messaging = FirebaseMessaging.instance;
     await messaging.requestPermission();
 
-    final token = await messaging.getToken();
+    // On iOS, Firebase needs the APNs token before it can provide an FCM token.
+    // Poll briefly to give the system time to deliver the APNs token.
+    String? token;
+    if (Platform.isIOS) {
+      for (var i = 0; i < 5; i++) {
+        token = await messaging.getToken();
+        if (token != null && token.isNotEmpty) break;
+        await Future.delayed(const Duration(seconds: 2));
+      }
+    } else {
+      token = await messaging.getToken();
+    }
+
     if (token == null || token.isEmpty) {
       throw Exception('FCM token unavailable');
     }
