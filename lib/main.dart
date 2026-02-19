@@ -1266,6 +1266,28 @@ class OdooApi {
     }
   }
 
+  /// Asks the server to remove any FCM token associated with the given session.
+  /// Sends an empty token name which signals the Odoo backend to deregister
+  /// the device for this session.
+  static Future<void> unregisterPushToken({
+    required String baseUrl,
+    required String sessionId,
+  }) async {
+    final uri = Uri.parse('$baseUrl/push_notification');
+    final response = await http.post(
+      uri,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cookie': 'session_id=$sessionId',
+      },
+      body: {'name': ''},
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Push unregister failed: HTTP ${response.statusCode}');
+    }
+  }
+
   static bool _isTwoFactorError(Map<String, dynamic> error) {
     final message = (error['message'] ?? '').toString().toLowerCase();
     final data = (error['data'] ?? '').toString().toLowerCase();
@@ -1504,6 +1526,8 @@ class LinkCoordinator {
 
 class FcmRegistration {
   static StreamSubscription<String>? _tokenSubscription;
+  static String? _registeredBaseUrl;
+  static String? _registeredSessionId;
 
   static Future<void> registerDevice({
     required String baseUrl,
@@ -1529,13 +1553,19 @@ class FcmRegistration {
       throw Exception('FCM token unavailable');
     }
 
+    _registeredBaseUrl = baseUrl;
+    _registeredSessionId = sessionId;
+
     await OdooApi.registerPushToken(
       baseUrl: baseUrl,
       sessionId: sessionId,
       token: token,
     );
 
-    _tokenSubscription ??= messaging.onTokenRefresh.listen(
+    // Cancel any previous subscription before creating a new one so a
+    // re-login does not keep a stale closure pointing to the old session.
+    await _tokenSubscription?.cancel();
+    _tokenSubscription = messaging.onTokenRefresh.listen(
       (newToken) async {
         if (newToken.isEmpty) {
           return;
@@ -1551,6 +1581,42 @@ class FcmRegistration {
         }
       },
     );
+  }
+
+  /// Unlinks the FCM token from the current user on the server, cancels the
+  /// token-refresh listener, and deletes the local FCM token so that a fresh
+  /// token is issued on the next login (ensuring it gets associated with the
+  /// new user only).
+  static Future<void> unregisterDevice() async {
+    // Cancel the token-refresh listener immediately so it can no longer send
+    // the old session to the server.
+    await _tokenSubscription?.cancel();
+    _tokenSubscription = null;
+
+    final baseUrl = _registeredBaseUrl;
+    final sessionId = _registeredSessionId;
+    _registeredBaseUrl = null;
+    _registeredSessionId = null;
+
+    // Tell the server to remove the token for the current session.
+    if (baseUrl != null && sessionId != null) {
+      try {
+        await OdooApi.unregisterPushToken(
+          baseUrl: baseUrl,
+          sessionId: sessionId,
+        );
+      } catch (error) {
+        debugPrint('FCM token unregister failed: $error');
+      }
+    }
+
+    // Delete the local FCM token so Firebase issues a brand-new token on the
+    // next registerDevice() call, preventing any cross-account token reuse.
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (error) {
+      debugPrint('FCM deleteToken failed: $error');
+    }
   }
 }
 
@@ -1648,6 +1714,10 @@ class _OdooWebViewPageState extends State<OdooWebViewPage> {
       return;
     }
     _logoutHandled = true;
+    // Unlink the FCM token from this user on the server and delete the local
+    // token before clearing the session, so the server call is still
+    // authenticated and a fresh token is issued on the next login.
+    await FcmRegistration.unregisterDevice();
     await SessionStore.clearSession();
     await WebViewCookieManager().clearCookies();
     if (!mounted) {
@@ -1664,6 +1734,9 @@ class _OdooWebViewPageState extends State<OdooWebViewPage> {
       return;
     }
     _loginHandled = true;
+    // Same cleanup as logout: unlink the FCM token from the current user
+    // before the session is wiped.
+    await FcmRegistration.unregisterDevice();
     await SessionStore.clearSession();
     await WebViewCookieManager().clearCookies();
     if (!mounted) {
