@@ -93,6 +93,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: appTitle,
       navigatorKey: appNavigatorKey,
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
         useMaterial3: true,
