@@ -91,3 +91,15 @@ extension AppDelegate {
     completionHandler()
   }
 }
+
+// MARK: - Badge clearing
+extension AppDelegate {
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    super.applicationDidBecomeActive(application)
+    if #available(iOS 16.0, *) {
+      UNUserNotificationCenter.current().setBadgeCount(0, withCompletionHandler: nil)
+    } else {
+      application.applicationIconBadgeNumber = 0
+    }
+  }
+}
