@@ -2146,7 +2146,7 @@ class OdooAttachmentDownloader {
   }) : _client = client ?? http.Client(),
        _notifications = notifications ?? FlutterLocalNotificationsPlugin();
 
-  static const _notificationId = 17001;
+  static int _nextNotificationId = 17001;
   final http.Client _client;
   final FlutterLocalNotificationsPlugin _notifications;
 
@@ -2157,6 +2157,7 @@ class OdooAttachmentDownloader {
     required void Function(AttachmentDownload status) onProgress,
     String? cookieOverride,
   }) async {
+    final notificationId = _nextNotificationId++;
     final request = http.Request('GET', Uri.parse(_forceDownload(url)));
     request.headers.addAll({
       // Prefer the live WebView cookie (passed as cookieOverride on Android);
@@ -2170,6 +2171,7 @@ class OdooAttachmentDownloader {
     });
 
     await _showNotification(
+      notificationId: notificationId,
       title: 'Downloading attachment',
       body: 'Starting...',
       progress: null,
@@ -2223,6 +2225,7 @@ class OdooAttachmentDownloader {
             ),
           );
           await _showNotification(
+            notificationId: notificationId,
             title: 'Downloading',
             body: fileName,
             progress: progress,
@@ -2235,6 +2238,7 @@ class OdooAttachmentDownloader {
     }
 
     await _showNotification(
+      notificationId: notificationId,
       title: 'Download complete',
       body: fileName,
       progress: 100,
@@ -2281,6 +2285,7 @@ class OdooAttachmentDownloader {
   }
 
   Future<void> _showNotification({
+    required int notificationId,
     required String title,
     required String body,
     required int? progress,
@@ -2312,7 +2317,7 @@ class OdooAttachmentDownloader {
       return;
     }
     await _notifications.show(
-      _notificationId,
+      notificationId,
       title,
       (progress == null || !ongoing) ? body : '$body ($progress%)',
       NotificationDetails(android: androidDetails, iOS: iosDetails),
