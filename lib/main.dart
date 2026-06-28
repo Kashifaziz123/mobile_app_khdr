@@ -5,8 +5,10 @@ import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:app_links/app_links.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -49,19 +51,39 @@ const _odooNotificationChannels = <AndroidNotificationChannel>[
     description: 'General Odoo notifications',
     importance: Importance.defaultImportance,
   ),
+  AndroidNotificationChannel(
+    'Downloads',
+    'Downloads',
+    description: 'File download progress',
+    importance: Importance.defaultImportance,
+  ),
 ];
 
 Future<void> _configureNotificationChannels() async {
+  const initializationSettings = InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    iOS: DarwinInitializationSettings(),
+  );
+  final plugin = FlutterLocalNotificationsPlugin();
+  await plugin.initialize(initializationSettings);
+  if (Platform.isIOS) {
+    await plugin
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
+  }
   if (!Platform.isAndroid) {
     return;
   }
-  final plugin = FlutterLocalNotificationsPlugin();
-  final androidPlugin =
-      plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+  final androidPlugin = plugin
+      .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin
+      >();
   if (androidPlugin == null) {
     return;
   }
+  await androidPlugin.requestNotificationsPermission();
   for (final channel in _odooNotificationChannels) {
     await androidPlugin.createNotificationChannel(channel);
   }
@@ -75,11 +97,12 @@ Future<void> main() async {
 
   // iOS: show banners/sound/badge even when app is in the foreground
   if (Platform.isIOS) {
-    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    await FirebaseMessaging.instance
+        .setForegroundNotificationPresentationOptions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
   }
 
   runApp(const MyApp());
@@ -123,14 +146,16 @@ class _AppBootstrapState extends State<AppBootstrap> {
 
   Future<void> _initialize() async {
     try {
-      await NotificationCoordinator.init(appNavigatorKey)
-          .timeout(const Duration(seconds: 5));
+      await NotificationCoordinator.init(
+        appNavigatorKey,
+      ).timeout(const Duration(seconds: 5));
     } catch (e) {
       debugPrint('NotificationCoordinator init timed out or failed: $e');
     }
     try {
-      await LinkCoordinator.init(appNavigatorKey)
-          .timeout(const Duration(seconds: 5));
+      await LinkCoordinator.init(
+        appNavigatorKey,
+      ).timeout(const Duration(seconds: 5));
     } catch (e) {
       debugPrint('LinkCoordinator init timed out or failed: $e');
     }
@@ -158,16 +183,15 @@ class _AppBootstrapState extends State<AppBootstrap> {
   @override
   Widget build(BuildContext context) {
     if (!_ready) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (_session == null) {
       return OdooSetupPage(initialLink: _pendingLink);
     }
     return OdooWebViewPage(
       baseUrl: _session!.baseUrl,
-      initialUrl: LinkResolver.resolve(_session!.baseUrl, _pendingLink) ??
+      initialUrl:
+          LinkResolver.resolve(_session!.baseUrl, _pendingLink) ??
           LinkResolver.webClientUrl(_session!.baseUrl),
     );
   }
@@ -198,7 +222,8 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
   List<String> _databases = [];
   String? _selectedDb;
   String? _statusMessageKey;
-  String? _statusMessageExtra; // For error messages that include dynamic content
+  String?
+  _statusMessageExtra; // For error messages that include dynamic content
   String? _pendingLink;
   bool _isArabic = false;
   bool _obscurePassword = true;
@@ -228,30 +253,55 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
 
   String _translateOdooError(String errorMessage) {
     final lowerError = errorMessage.toLowerCase();
-    
+
     // Common Odoo error translations
-    if (lowerError.contains('access denied') || lowerError.contains('wrong login/password')) {
-      return _text('Wrong email or password. Please try again.', 'البريد الإلكتروني أو كلمة المرور خاطئة. يرجى المحاولة مرة أخرى.');
+    if (lowerError.contains('access denied') ||
+        lowerError.contains('wrong login/password')) {
+      return _text(
+        'Wrong email or password. Please try again.',
+        'البريد الإلكتروني أو كلمة المرور خاطئة. يرجى المحاولة مرة أخرى.',
+      );
     }
-    if (lowerError.contains('invalid credentials') || lowerError.contains('invalid login')) {
-      return _text('Invalid email or password.', 'البريد الإلكتروني أو كلمة المرور غير صحيح.');
+    if (lowerError.contains('invalid credentials') ||
+        lowerError.contains('invalid login')) {
+      return _text(
+        'Invalid email or password.',
+        'البريد الإلكتروني أو كلمة المرور غير صحيح.',
+      );
     }
-    if (lowerError.contains('user not found') || lowerError.contains('unknown user')) {
-      return _text('User not found. Please check your email.', 'المستخدم غير موجود. يرجى التحقق من بريدك الإلكتروني.');
+    if (lowerError.contains('user not found') ||
+        lowerError.contains('unknown user')) {
+      return _text(
+        'User not found. Please check your email.',
+        'المستخدم غير موجود. يرجى التحقق من بريدك الإلكتروني.',
+      );
     }
     if (lowerError.contains('password') && lowerError.contains('incorrect')) {
-      return _text('Incorrect password. Please try again.', 'كلمة المرور غير صحيحة. يرجى المحاولة مرة أخرى.');
+      return _text(
+        'Incorrect password. Please try again.',
+        'كلمة المرور غير صحيحة. يرجى المحاولة مرة أخرى.',
+      );
     }
-    if (lowerError.contains('account') && (lowerError.contains('locked') || lowerError.contains('disabled'))) {
-      return _text('Your account is locked. Please contact administrator.', 'حسابك مقفل. يرجى الاتصال بالمسؤول.');
+    if (lowerError.contains('account') &&
+        (lowerError.contains('locked') || lowerError.contains('disabled'))) {
+      return _text(
+        'Your account is locked. Please contact administrator.',
+        'حسابك مقفل. يرجى الاتصال بالمسؤول.',
+      );
     }
     if (lowerError.contains('database') && lowerError.contains('not found')) {
-      return _text('Database not found. Please check the database name.', 'قاعدة البيانات غير موجودة. يرجى التحقق من اسم قاعدة البيانات.');
+      return _text(
+        'Database not found. Please check the database name.',
+        'قاعدة البيانات غير موجودة. يرجى التحقق من اسم قاعدة البيانات.',
+      );
     }
     if (lowerError.contains('connection') || lowerError.contains('timeout')) {
-      return _text('Connection error. Please check your internet connection.', 'خطأ في الاتصال. يرجى التحقق من اتصال الإنترنت.');
+      return _text(
+        'Connection error. Please check your internet connection.',
+        'خطأ في الاتصال. يرجى التحقق من اتصال الإنترنت.',
+      );
     }
-    
+
     // Return original if no translation found
     return errorMessage;
   }
@@ -275,23 +325,44 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
       case 'enter_valid_url':
         return _text('Enter a valid Odoo URL.', 'أدخل رابط أودو صحيح.');
       case 'checking_server':
-        return _text('Checking server and loading databases...', 'جارٍ التحقق من الخادم وتحميل قواعد البيانات...');
+        return _text(
+          'Checking server and loading databases...',
+          'جارٍ التحقق من الخادم وتحميل قواعد البيانات...',
+        );
       case 'db_listing_disabled':
-        return _text('Database listing is disabled. Enter DB manually.', 'قائمة قواعد البيانات معطلة. أدخل قاعدة البيانات يدوياً.');
+        return _text(
+          'Database listing is disabled. Enter DB manually.',
+          'قائمة قواعد البيانات معطلة. أدخل قاعدة البيانات يدوياً.',
+        );
       case 'server_ok_single':
-        return _text('Server OK. Ready to login.', 'الخادم جاهز. جاهز لتسجيل الدخول.');
+        return _text(
+          'Server OK. Ready to login.',
+          'الخادم جاهز. جاهز لتسجيل الدخول.',
+        );
       case 'server_ok_multiple':
-        return _text('Server OK. Select a database and login.', 'الخادم جاهز. اختر قاعدة البيانات وقم بتسجيل الدخول.');
+        return _text(
+          'Server OK. Select a database and login.',
+          'الخادم جاهز. اختر قاعدة البيانات وقم بتسجيل الدخول.',
+        );
       case 'failed_fetch_db':
         return _text('$_statusMessageExtra', '$_statusMessageExtra');
       case 'logging_in':
         return _text('Logging in...', 'جارٍ تسجيل الدخول...');
       case 'verifying_2fa':
-        return _text('Verifying two-factor code...', 'جارٍ التحقق من رمز المصادقة الثنائية...');
+        return _text(
+          'Verifying two-factor code...',
+          'جارٍ التحقق من رمز المصادقة الثنائية...',
+        );
       case 'push_reg_failed':
-        return _text('Logged in, but push registration failed: $_statusMessageExtra', 'تم تسجيل الدخول، لكن فشل تسجيل الإشعارات: $_statusMessageExtra');
+        return _text(
+          'Logged in, but push registration failed: $_statusMessageExtra',
+          'تم تسجيل الدخول، لكن فشل تسجيل الإشعارات: $_statusMessageExtra',
+        );
       case '2fa_required':
-        return _text('Two-factor code is required.', 'رمز المصادقة الثنائية مطلوب.');
+        return _text(
+          'Two-factor code is required.',
+          'رمز المصادقة الثنائية مطلوب.',
+        );
       case 'login_failed':
         if (_statusMessageExtra != null) {
           return _translateOdooError(_statusMessageExtra!);
@@ -302,15 +373,27 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
       case 'login_success':
         return _text('Login success', 'تم تسجيل الدخول بنجاح');
       case 'link_unavailable':
-        return _text('Server is not accessible. Please try again in a few minutes.', 'الخادم غير متاح. يرجى المحاولة مرة أخرى بعد بضع دقائق.');
+        return _text(
+          'Server is not accessible. Please try again in a few minutes.',
+          'الخادم غير متاح. يرجى المحاولة مرة أخرى بعد بضع دقائق.',
+        );
       case 'db_not_selected':
-        return _text('Please select a database.', 'يرجى اختيار قاعدة البيانات.');
+        return _text(
+          'Please select a database.',
+          'يرجى اختيار قاعدة البيانات.',
+        );
       case 'db_not_found':
-        return _text('Database not found. Please check the database name.', 'قاعدة البيانات غير موجودة. يرجى التحقق من اسم قاعدة البيانات.');
+        return _text(
+          'Database not found. Please check the database name.',
+          'قاعدة البيانات غير موجودة. يرجى التحقق من اسم قاعدة البيانات.',
+        );
       case 'db_required':
         return _text('Database name is required.', 'اسم قاعدة البيانات مطلوب.');
       case 'checking_before_login':
-        return _text('Verifying server and database...', 'جارٍ التحقق من الخادم وقاعدة البيانات...');
+        return _text(
+          'Verifying server and database...',
+          'جارٍ التحقق من الخادم وقاعدة البيانات...',
+        );
       default:
         return _statusMessageKey;
     }
@@ -559,15 +642,13 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
                   return;
                 }
               }
-              if (result is Map &&
-                  (uidString == null || uidString == 'null')) {
+              if (result is Map && (uidString == null || uidString == 'null')) {
                 setState(() {
                   _showTwoFactor = true;
                   _statusMessageKey = '2fa_required';
                   _statusMessageExtra = null;
                 });
-                final sessionId =
-                    OdooApi.extractSessionIdFromHeaders(headers);
+                final sessionId = OdooApi.extractSessionIdFromHeaders(headers);
                 if (sessionId != null) {
                   await WebViewCookieManager().setCookie(
                     WebViewCookie(
@@ -639,7 +720,7 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
         ),
       );
 
-        await SessionStore.saveSession(baseUrl, session.sessionId);
+      await SessionStore.saveSession(baseUrl, session.sessionId);
 
       try {
         await FcmRegistration.registerDevice(
@@ -663,7 +744,8 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
         MaterialPageRoute(
           builder: (_) => OdooWebViewPage(
             baseUrl: baseUrl,
-            initialUrl: LinkResolver.resolve(baseUrl, _pendingLink) ??
+            initialUrl:
+                LinkResolver.resolve(baseUrl, _pendingLink) ??
                 LinkResolver.webClientUrl(baseUrl, forceReload: true),
           ),
         ),
@@ -679,23 +761,25 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
     } catch (error) {
       // Extract the actual error message from Odoo
       String errorMessage = error.toString();
-      
+
       // Remove "Exception: " prefix if present (can be multiple)
       while (errorMessage.startsWith('Exception: ')) {
         errorMessage = errorMessage.substring(11);
       }
-      
+
       // Remove "Odoo Server Error: " prefix if present
       if (errorMessage.startsWith('Odoo Server Error: ')) {
         errorMessage = errorMessage.substring(20);
       }
-      
+
       // Trim any extra whitespace
       errorMessage = errorMessage.trim();
-      
+
       setState(() {
         _statusMessageKey = 'login_failed';
-        _statusMessageExtra = errorMessage.isEmpty ? 'Authentication failed' : errorMessage;
+        _statusMessageExtra = errorMessage.isEmpty
+            ? 'Authentication failed'
+            : errorMessage;
       });
     } finally {
       if (mounted) {
@@ -787,26 +871,26 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
                             ),
                           ),
                         ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _text('Welcome Back', 'مرحباً بعودتك'),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
+                        const SizedBox(height: 12),
+                        Text(
+                          _text('Welcome Back', 'مرحباً بعودتك'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _text(
-                          'Login to access your account',
-                          'قم بتسجيل الدخول للوصول إلى حسابك',
+                        const SizedBox(height: 4),
+                        Text(
+                          _text(
+                            'Login to access your account',
+                            'قم بتسجيل الدخول للوصول إلى حسابك',
+                          ),
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 13,
+                          ),
                         ),
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
-                          fontSize: 13,
-                        ),
-                      ),
                       ],
                     ),
                   ),
@@ -824,163 +908,157 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                                if (hasMultipleDatabases)
-                                  DropdownButtonFormField<String>(
-                                    value: _selectedDb,
-                                    isExpanded: true,
-                                    items: _databases
-                                        .map(
-                                          (db) => DropdownMenuItem(
-                                            value: db,
-                                            child: Text(
-                                              db,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        )
-                                        .toList(),
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _selectedDb = value;
-                                      });
-                                    },
-                                    decoration: _inputDecoration(
-                                      label: _text('Database', 'قاعدة البيانات'),
-                                      placeholder: _text(
-                                        'Select database',
-                                        'اختر قاعدة البيانات',
-                                      ),
-                                      icon: Icons.storage,
-                                    ),
-                                    validator: (value) {
-                                      if (value == null || value.isEmpty) {
-                                        return _text(
-                                          'Select a database',
-                                          'اختر قاعدة البيانات',
-                                        );
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                if (hasMultipleDatabases)
-                                  const SizedBox(height: 10),
-                                TextFormField(
-                                  controller: _loginController,
-                                  decoration: _inputDecoration(
-                                    label: _text('Email', 'البريد الإلكتروني'),
-                                    placeholder: _text(
-                                      'Enter your email',
-                                      'أدخل بريدك الإلكتروني',
-                                    ),
-                                    icon: Icons.email,
-                                  ),
-                                  textInputAction: TextInputAction.next,
-                                  validator: (value) {
-                                    if (value == null || value.trim().isEmpty) {
-                                      return _text(
-                                        'Enter login',
-                                        'أدخل البريد الإلكتروني',
-                                      );
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 10),
-                                TextFormField(
-                                  controller: _passwordController,
-                                  decoration: _inputDecoration(
-                                    label: _text('Password', 'كلمة المرور'),
-                                    placeholder: _text(
-                                      'Enter your password',
-                                      'أدخل كلمة المرور',
-                                    ),
-                                    icon: Icons.lock,
-                                    suffix: IconButton(
-                                      onPressed: () {
-                                        setState(() {
-                                          _obscurePassword = !_obscurePassword;
-                                        });
-                                      },
-                                      icon: Icon(
-                                        _obscurePassword
-                                            ? Icons.visibility
-                                            : Icons.visibility_off,
-                                      ),
-                                    ),
-                                  ),
-                                  obscureText: _obscurePassword,
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return _text(
-                                        'Enter password',
-                                        'أدخل كلمة المرور',
-                                      );
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                Align(
-                                  alignment: _isArabic
-                                      ? Alignment.centerLeft
-                                      : Alignment.centerRight,
-                                  child: TextButton(
-                                    onPressed: _openResetPassword,
-                                    style: TextButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(vertical: 4),
-                                    ),
+                        if (hasMultipleDatabases)
+                          DropdownButtonFormField<String>(
+                            value: _selectedDb,
+                            isExpanded: true,
+                            items: _databases
+                                .map(
+                                  (db) => DropdownMenuItem(
+                                    value: db,
                                     child: Text(
-                                      _text(
-                                        'Forgot password?',
-                                        'نسيت كلمة المرور؟',
-                                      ),
-                                      style: const TextStyle(
-                                        color: Color(0xFFDC2626),
-                                        fontSize: 13,
-                                      ),
+                                      db,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                Container(
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [Color(0xFFdc2626), Color(0xFF991b1b)],
-                                    ),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: ElevatedButton(
-                                    onPressed: _isLoggingIn ? null : _login,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      shadowColor: Colors.transparent,
-                                      minimumSize: const Size.fromHeight(48),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      _text('Log in', 'تسجيل الدخول'),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                if (_getStatusMessage() != null) ...[
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    _getStatusMessage()!,
-                                    style: const TextStyle(
-                                      color: Color(0xFFDC2626),
-                                    ),
-                                  ),
-                                ],
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedDb = value;
+                              });
+                            },
+                            decoration: _inputDecoration(
+                              label: _text('Database', 'قاعدة البيانات'),
+                              placeholder: _text(
+                                'Select database',
+                                'اختر قاعدة البيانات',
+                              ),
+                              icon: Icons.storage,
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return _text(
+                                  'Select a database',
+                                  'اختر قاعدة البيانات',
+                                );
+                              }
+                              return null;
+                            },
+                          ),
+                        if (hasMultipleDatabases) const SizedBox(height: 10),
+                        TextFormField(
+                          controller: _loginController,
+                          decoration: _inputDecoration(
+                            label: _text('Email', 'البريد الإلكتروني'),
+                            placeholder: _text(
+                              'Enter your email',
+                              'أدخل بريدك الإلكتروني',
+                            ),
+                            icon: Icons.email,
+                          ),
+                          textInputAction: TextInputAction.next,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return _text(
+                                'Enter login',
+                                'أدخل البريد الإلكتروني',
+                              );
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        TextFormField(
+                          controller: _passwordController,
+                          decoration: _inputDecoration(
+                            label: _text('Password', 'كلمة المرور'),
+                            placeholder: _text(
+                              'Enter your password',
+                              'أدخل كلمة المرور',
+                            ),
+                            icon: Icons.lock,
+                            suffix: IconButton(
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                              ),
+                            ),
+                          ),
+                          obscureText: _obscurePassword,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return _text(
+                                'Enter password',
+                                'أدخل كلمة المرور',
+                              );
+                            }
+                            return null;
+                          },
+                        ),
+                        Align(
+                          alignment: _isArabic
+                              ? Alignment.centerLeft
+                              : Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: _openResetPassword,
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                            ),
+                            child: Text(
+                              _text('Forgot password?', 'نسيت كلمة المرور؟'),
+                              style: const TextStyle(
+                                color: Color(0xFFDC2626),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          height: 48,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFdc2626), Color(0xFF991b1b)],
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: ElevatedButton(
+                            onPressed: _isLoggingIn ? null : _login,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              minimumSize: const Size.fromHeight(48),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: Text(
+                              _text('Log in', 'تسجيل الدخول'),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (_getStatusMessage() != null) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            _getStatusMessage()!,
+                            style: const TextStyle(color: Color(0xFFDC2626)),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -999,7 +1077,10 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
                       TextButton(
                         onPressed: () {},
                         style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                         ),
                         child: Text(
                           _text('Need Help?', 'تحتاج مساعدة؟'),
@@ -1013,13 +1094,13 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
                       TextButton(
                         onPressed: () {},
                         style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                         ),
                         child: Text(
-                          _text(
-                            'Terms & Conditions',
-                            'الشروط والأحكام',
-                          ),
+                          _text('Terms & Conditions', 'الشروط والأحكام'),
                           style: const TextStyle(
                             color: Color(0xFF6B7280),
                             fontSize: 12,
@@ -1082,10 +1163,12 @@ class _TwoFactorPageState extends State<TwoFactorPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(_text(
-                'Enter the authentication code from your app.',
-                'أدخل رمز المصادقة من تطبيقك.',
-              )),
+              Text(
+                _text(
+                  'Enter the authentication code from your app.',
+                  'أدخل رمز المصادقة من تطبيقك.',
+                ),
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: _controller,
@@ -1176,7 +1259,7 @@ class OdooApi {
     required String password,
     String? totp,
     Future<void> Function(String url, String body, Map<String, String> headers)?
-        onRawResponse,
+    onRawResponse,
   }) async {
     final uri = Uri.parse('$baseUrl/web/session/authenticate');
     final params = {
@@ -1189,11 +1272,7 @@ class OdooApi {
     final response = await http.post(
       uri,
       headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'jsonrpc': '2.0',
-        'method': 'call',
-        'params': params,
-      }),
+      body: jsonEncode({'jsonrpc': '2.0', 'method': 'call', 'params': params}),
     );
 
     if (onRawResponse != null) {
@@ -1209,7 +1288,7 @@ class OdooApi {
       if (_isTwoFactorError(data['error'] as Map<String, dynamic>)) {
         throw OdooTwoFactorRequiredException();
       }
-      
+
       // Extract Odoo error message (1) error.data.message, (2) error.message
       final errorData = data['error'] as Map<String, dynamic>;
       final errorMessage = _extractOdooErrorMessage(errorData);
@@ -1226,12 +1305,15 @@ class OdooApi {
       if (uidString == null) {
         throw OdooTwoFactorRequiredException();
       }
-      
+
       // Check if result contains error information
       if (result['error'] != null) {
         final resultError = result['error'];
         if (resultError is Map) {
-          final errorMsg = resultError['message'] ?? resultError['data']?.toString() ?? 'Authentication failed';
+          final errorMsg =
+              resultError['message'] ??
+              resultError['data']?.toString() ??
+              'Authentication failed';
           throw Exception(errorMsg.toString());
         } else if (resultError is String) {
           throw Exception(resultError);
@@ -1308,9 +1390,7 @@ class OdooApi {
     return match?.group(1);
   }
 
-  static String? extractSessionIdFromHeaders(
-    Map<String, String> headers,
-  ) {
+  static String? extractSessionIdFromHeaders(Map<String, String> headers) {
     return _extractSessionId(headers['set-cookie']);
   }
 }
@@ -1434,8 +1514,9 @@ class NotificationCoordinator {
       return;
     }
     final url = LinkResolver.resolve(session.baseUrl, link) ?? session.baseUrl;
-    final resolvedUrl =
-        url == session.baseUrl ? LinkResolver.webClientUrl(session.baseUrl) : url;
+    final resolvedUrl = url == session.baseUrl
+        ? LinkResolver.webClientUrl(session.baseUrl)
+        : url;
     await WebViewCookieManager().setCookie(
       WebViewCookie(
         name: 'session_id',
@@ -1446,10 +1527,8 @@ class NotificationCoordinator {
     );
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (_) => OdooWebViewPage(
-          baseUrl: session.baseUrl,
-          initialUrl: resolvedUrl,
-        ),
+        builder: (_) =>
+            OdooWebViewPage(baseUrl: session.baseUrl, initialUrl: resolvedUrl),
       ),
       (route) => false,
     );
@@ -1475,8 +1554,9 @@ class LinkCoordinator {
     }
     _initialized = true;
     try {
-      final initialUri = await _appLinks.getInitialLink()
-          .timeout(const Duration(seconds: 3));
+      final initialUri = await _appLinks.getInitialLink().timeout(
+        const Duration(seconds: 3),
+      );
       if (initialUri != null) {
         await _handleLink(initialUri.toString(), navigatorKey);
       }
@@ -1515,10 +1595,8 @@ class LinkCoordinator {
     );
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (_) => OdooWebViewPage(
-          baseUrl: session.baseUrl,
-          initialUrl: url,
-        ),
+        builder: (_) =>
+            OdooWebViewPage(baseUrl: session.baseUrl, initialUrl: url),
       ),
       (route) => false,
     );
@@ -1566,22 +1644,20 @@ class FcmRegistration {
     // Cancel any previous subscription before creating a new one so a
     // re-login does not keep a stale closure pointing to the old session.
     await _tokenSubscription?.cancel();
-    _tokenSubscription = messaging.onTokenRefresh.listen(
-      (newToken) async {
-        if (newToken.isEmpty) {
-          return;
-        }
-        try {
-          await OdooApi.registerPushToken(
-            baseUrl: baseUrl,
-            sessionId: sessionId,
-            token: newToken,
-          );
-        } catch (error) {
-          debugPrint('FCM token refresh failed: $error');
-        }
-      },
-    );
+    _tokenSubscription = messaging.onTokenRefresh.listen((newToken) async {
+      if (newToken.isEmpty) {
+        return;
+      }
+      try {
+        await OdooApi.registerPushToken(
+          baseUrl: baseUrl,
+          sessionId: sessionId,
+          token: newToken,
+        );
+      } catch (error) {
+        debugPrint('FCM token refresh failed: $error');
+      }
+    });
   }
 
   /// Unlinks the FCM token from the current user on the server, cancels the
@@ -1622,11 +1698,7 @@ class FcmRegistration {
 }
 
 class OdooWebViewPage extends StatefulWidget {
-  const OdooWebViewPage({
-    super.key,
-    required this.baseUrl,
-    this.initialUrl,
-  });
+  const OdooWebViewPage({super.key, required this.baseUrl, this.initialUrl});
 
   final String baseUrl;
   final String? initialUrl;
@@ -1637,7 +1709,12 @@ class OdooWebViewPage extends StatefulWidget {
 
 class _OdooWebViewPageState extends State<OdooWebViewPage> {
   late final WebViewController _controller;
-  int _loadingProgress = 0;
+  final ValueNotifier<int> _progressNotifier = ValueNotifier(0);
+  final ValueNotifier<AttachmentDownload?> _downloadNotifier = ValueNotifier(
+    null,
+  );
+  final OdooAttachmentDownloader _attachmentDownloader =
+      OdooAttachmentDownloader();
   bool _logoutHandled = false;
   bool _loginHandled = false;
 
@@ -1645,45 +1722,266 @@ class _OdooWebViewPageState extends State<OdooWebViewPage> {
   void initState() {
     super.initState();
     final startUrl = widget.initialUrl ?? widget.baseUrl;
-    _controller =
-        WebViewController()
-          ..setJavaScriptMode(JavaScriptMode.unrestricted)
-          ..setNavigationDelegate(
-            NavigationDelegate(
-              onNavigationRequest: (request) {
-                if (_isLoginUrl(request.url)) {
-                  _handleLoginRedirect();
-                  return NavigationDecision.prevent;
-                }
-                if (_isLogoutUrl(request.url)) {
-                  _handleLogout();
-                  return NavigationDecision.prevent;
-                }
-                return NavigationDecision.navigate;
-              },
-              onProgress: (progress) {
-                if (!mounted) {
-                  return;
-                }
-                setState(() {
-                  _loadingProgress = progress;
-                });
-              },
-              onWebResourceError: (error) {
-                if (!mounted) {
-                  return;
-                }
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Failed to load page: ${error.errorCode} ${error.description}',
-                    ),
-                  ),
-                );
-              },
-            ),
-          )
-          ..loadRequest(Uri.parse(startUrl));
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..addJavaScriptChannel(
+        'KhdrDownload',
+        onMessageReceived: (message) {
+          final url = message.message.trim();
+          if (url.isNotEmpty) {
+            _downloadAttachment(url);
+          }
+        },
+      )
+      ..setOnConsoleMessage((_) {})
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) {
+            if (_isLoginUrl(request.url)) {
+              _handleLoginRedirect();
+              return NavigationDecision.prevent;
+            }
+            if (_isLogoutUrl(request.url)) {
+              _handleLogout();
+              return NavigationDecision.prevent;
+            }
+            if (_shouldDownloadInApp(request.url)) {
+              _downloadAttachment(request.url);
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+          onProgress: (progress) {
+            _progressNotifier.value = progress;
+          },
+          onWebResourceError: (error) {
+            if (!mounted) {
+              return;
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Failed to load page: ${error.errorCode} ${error.description}',
+                ),
+              ),
+            );
+          },
+          onPageFinished: (url) {
+            _injectDownloadBridge();
+            if (Platform.isAndroid) {
+              _injectKeyboardScrollFix();
+            }
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(startUrl));
+  }
+
+  void _injectDownloadBridge() {
+    _controller.runJavaScript(r'''
+      (function() {
+        if (window._khdrDownloadBridge) return;
+        window._khdrDownloadBridge = true;
+
+        function isDownloadUrl(value) {
+          if (!value || typeof value !== 'string') return false;
+          try {
+            var url = new URL(value, window.location.href);
+            var path = url.pathname.toLowerCase();
+            if (path === "/web/content" || path.indexOf("/web/content/") === 0 ||
+                path === "/web/image" || path.indexOf("/web/image/") === 0) {
+              return true;
+            }
+            // Also catch any same-origin URL with an explicit download flag.
+            if (url.hostname === window.location.hostname) {
+              var dl = new URLSearchParams(url.search).get('download');
+              if (dl === 'true' || dl === '1') return true;
+            }
+            return false;
+          } catch (e) {
+            return false;
+          }
+        }
+
+        function sendDownload(value) {
+          if (!isDownloadUrl(value)) return false;
+          try {
+            KhdrDownload.postMessage(new URL(value, window.location.href).href);
+          } catch(e) {
+            KhdrDownload.postMessage(value);
+          }
+          return true;
+        }
+
+        // Intercept anchor clicks (capture phase so we run before Odoo's JS)
+        document.addEventListener("click", function(event) {
+          var el = event.target;
+          var anchor = el && el.closest ? el.closest("a[href]") : null;
+          if (anchor && (anchor.hasAttribute("download") || isDownloadUrl(anchor.href))) {
+            if (sendDownload(anchor.href)) {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation();
+            }
+          }
+        }, true);
+
+        // Intercept programmatic anchor.click() calls (Odoo creates a temp <a> and clicks it)
+        var originalClick = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function() {
+          var href = this.href || this.getAttribute("href");
+          if ((this.hasAttribute("download") || isDownloadUrl(href)) && sendDownload(href)) {
+            return;
+          }
+          return originalClick.apply(this, arguments);
+        };
+
+        // Intercept window.open() used by some Odoo viewers for downloads
+        var originalOpen = window.open;
+        window.open = function(url, target, features) {
+          if (typeof url === 'string' && sendDownload(url)) {
+            return null;
+          }
+          return originalOpen.apply(this, arguments);
+        };
+      })();
+    ''');
+  }
+
+  // Injected once per page load on Android.
+  // Fixes two issues in Odoo discuss:
+  //   1. Brief flash on first input tap (keyboard appears before Odoo's JS scrolls).
+  //   2. Input hidden after sending a message (Odoo's resize handler doesn't re-fire
+  //      because the input was never blurred, so visualViewport.height didn't change).
+  // Strategy: on both viewport resize AND focusin on any editable element,
+  // dispatch a synthetic 'resize' so Odoo's own handler re-runs, then also
+  // call scrollIntoView as a fallback.
+  void _injectKeyboardScrollFix() {
+    _controller.runJavaScript(r'''
+      (function() {
+        if (window._khdrScrollFix) return;
+        window._khdrScrollFix = true;
+
+        function fixLayout() {
+          window.dispatchEvent(new Event('resize'));
+          var el = document.activeElement;
+          if (el && el !== document.body && el !== document.documentElement) {
+            setTimeout(function() {
+              el.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+            }, 50);
+          }
+        }
+
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', function() {
+            setTimeout(fixLayout, 100);
+          });
+        }
+
+        document.addEventListener('focusin', function(e) {
+          var t = e.target;
+          if (!t) return;
+          var tag = t.tagName;
+          var ce = t.getAttribute('contenteditable');
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || ce === 'true' || ce === '') {
+            setTimeout(fixLayout, 300);
+          }
+        }, true);
+      })();
+    ''');
+  }
+
+  @override
+  void dispose() {
+    _progressNotifier.dispose();
+    _downloadNotifier.dispose();
+    super.dispose();
+  }
+
+  bool _shouldDownloadInApp(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    final path = uri.path.toLowerCase();
+    if (path == '/web/content' || path.startsWith('/web/content/')) return true;
+    if (path == '/web/image' || path.startsWith('/web/image/')) return true;
+    // Catch any same-server URL with an explicit download flag (Odoo always adds this).
+    final download = uri.queryParameters['download'];
+    if (download == 'true' || download == '1') return true;
+    return false;
+  }
+
+  static const _downloaderChannel = MethodChannel('com.khdr/downloader');
+
+  // Ensures the URL has download=true so Odoo returns the file as an attachment.
+  static String _withDownloadParam(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return url;
+    final q = uri.queryParameters;
+    if (q['download'] == 'true' || q['download'] == '1') return url;
+    return uri.replace(queryParameters: {...q, 'download': 'true'}).toString();
+  }
+
+  Future<void> _downloadAttachment(String url) async {
+    final session = await SessionStore.loadSession();
+    if (session == null) {
+      await _handleLoginRedirect();
+      return;
+    }
+    final resolvedUrl = _withDownloadParam(
+      LinkResolver.resolve(widget.baseUrl, url) ?? url,
+    );
+
+    if (_downloadNotifier.value?.active == true) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('A download is already in progress.')),
+        );
+      }
+      return;
+    }
+
+    // On Android, use the live WebView cookie (always current) instead of the
+    // stored session_id, which can be stale if Odoo refreshed the session.
+    String? liveCookie;
+    if (Platform.isAndroid) {
+      try {
+        liveCookie = await _downloaderChannel.invokeMethod<String>(
+          'getCookies',
+          {'url': resolvedUrl},
+        );
+      } catch (_) {}
+    }
+
+    _downloadNotifier.value = const AttachmentDownload(
+      fileName: 'Preparing download…',
+      progress: null,
+      active: true,
+    );
+    try {
+      final fileName = await _attachmentDownloader.download(
+        url: resolvedUrl,
+        baseUrl: session.baseUrl,
+        sessionId: session.sessionId,
+        cookieOverride: liveCookie,
+        onProgress: (status) {
+          _downloadNotifier.value = status;
+        },
+      );
+      _downloadNotifier.value = null;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Downloaded: $fileName'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (error) {
+      _downloadNotifier.value = null;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Download failed: $error')),
+      );
+    }
   }
 
   bool _isLogoutUrl(String url) {
@@ -1762,17 +2060,345 @@ class _OdooWebViewPageState extends State<OdooWebViewPage> {
     return WillPopScope(
       onWillPop: _handleBackPress,
       child: Scaffold(
+        // On Android: prevent Flutter from adding a bottom inset on top of the
+        // OS-level adjustResize. The double-resize causes the WebView to lose
+        // input focus and dismiss the keyboard. iOS handles this natively via
+        // WKWebView, so we keep the default (true) there.
+        resizeToAvoidBottomInset: !Platform.isAndroid,
         body: SafeArea(
           top: true,
           child: Stack(
             children: [
               WebViewWidget(controller: _controller),
-              if (_loadingProgress < 100)
-                LinearProgressIndicator(value: _loadingProgress / 100),
+              ValueListenableBuilder<int>(
+                valueListenable: _progressNotifier,
+                builder: (context, progress, _) {
+                  if (progress >= 100) return const SizedBox.shrink();
+                  return LinearProgressIndicator(value: progress / 100);
+                },
+              ),
+              ValueListenableBuilder<AttachmentDownload?>(
+                valueListenable: _downloadNotifier,
+                builder: (context, download, _) {
+                  if (download == null || !download.active) {
+                    return const SizedBox.shrink();
+                  }
+                  return Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 12,
+                    child: SafeArea(
+                      top: false,
+                      child: Material(
+                        elevation: 6,
+                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.black87,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                download.fileName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              const SizedBox(height: 8),
+                              LinearProgressIndicator(
+                                value: download.progress == null
+                                    ? null
+                                    : download.progress! / 100,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+class AttachmentDownload {
+  const AttachmentDownload({
+    required this.fileName,
+    required this.progress,
+    required this.active,
+  });
+
+  final String fileName;
+  final int? progress;
+  final bool active;
+}
+
+class OdooAttachmentDownloader {
+  OdooAttachmentDownloader({
+    http.Client? client,
+    FlutterLocalNotificationsPlugin? notifications,
+  }) : _client = client ?? http.Client(),
+       _notifications = notifications ?? FlutterLocalNotificationsPlugin();
+
+  static const _notificationId = 17001;
+  final http.Client _client;
+  final FlutterLocalNotificationsPlugin _notifications;
+
+  Future<String> download({
+    required String url,
+    required String baseUrl,
+    required String sessionId,
+    required void Function(AttachmentDownload status) onProgress,
+    String? cookieOverride,
+  }) async {
+    final request = http.Request('GET', Uri.parse(_forceDownload(url)));
+    request.headers.addAll({
+      // Prefer the live WebView cookie (passed as cookieOverride on Android);
+      // fall back to the stored session_id for iOS.
+      HttpHeaders.cookieHeader: (cookieOverride != null && cookieOverride.isNotEmpty)
+          ? cookieOverride
+          : 'session_id=$sessionId',
+      HttpHeaders.acceptHeader: '*/*',
+      HttpHeaders.userAgentHeader: 'Alkhudor Flutter App',
+      HttpHeaders.refererHeader: LinkResolver.webClientUrl(baseUrl),
+    });
+
+    await _showNotification(
+      title: 'Downloading attachment',
+      body: 'Starting...',
+      progress: null,
+      ongoing: true,
+    );
+
+    final response = await _client
+        .send(request)
+        .timeout(const Duration(seconds: 60));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Server returned ${response.statusCode}');
+    }
+
+    final contentType = response.headers[HttpHeaders.contentTypeHeader] ?? '';
+    if (contentType.toLowerCase().contains('text/html')) {
+      throw Exception(
+        'Session may have expired — the server returned a web page instead of a file.',
+      );
+    }
+
+    final fileName = _sanitizeFileName(
+      _fileNameFromDisposition(response.headers['content-disposition']) ??
+          _fileNameFromUrl(response.request?.url ?? Uri.parse(url)) ??
+          _fallbackFileName(contentType),
+    );
+    final downloadsDir = await _downloadsDirectory();
+    final destinationFile = await _availableFile(downloadsDir, fileName);
+    final sink = destinationFile.openWrite();
+    final expectedBytes = response.contentLength ?? -1;
+    var receivedBytes = 0;
+    var lastProgress = -1;
+
+    try {
+      // Per-chunk timeout: if no data arrives for 30 s, give up.
+      await for (final chunk
+          in response.stream.timeout(const Duration(seconds: 30))) {
+        receivedBytes += chunk.length;
+        sink.add(chunk);
+        final int? progress = expectedBytes > 0
+            ? (receivedBytes * 100 / expectedBytes).floor().clamp(0, 99)
+            : null;
+        if (progress == null || progress != lastProgress) {
+          if (progress != null) {
+            lastProgress = progress;
+          }
+          onProgress(
+            AttachmentDownload(
+              fileName: fileName,
+              progress: progress,
+              active: true,
+            ),
+          );
+          await _showNotification(
+            title: 'Downloading',
+            body: fileName,
+            progress: progress,
+            ongoing: true,
+          );
+        }
+      }
+    } finally {
+      await sink.close();
+    }
+
+    await _showNotification(
+      title: 'Download complete',
+      body: fileName,
+      progress: 100,
+      ongoing: false,
+    );
+    return fileName;
+  }
+
+  Future<Directory> _downloadsDirectory() async {
+    if (Platform.isAndroid) {
+      // Ask the native side for the public Downloads path
+      // (Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)).
+      // This bypasses DownloadManager and writes directly to the folder that
+      // appears in the user's Downloads app.
+      try {
+        const channel = MethodChannel('com.khdr/downloader');
+        final path = await channel.invokeMethod<String>('getPublicDownloadsPath');
+        if (path != null && path.isNotEmpty) {
+          final dir = Directory(path);
+          if (!await dir.exists()) await dir.create(recursive: true);
+          return dir;
+        }
+      } catch (_) {}
+      // Fallback: app-specific external storage.
+      final ext = await getExternalStorageDirectory();
+      if (ext != null) return ext;
+    }
+    return getApplicationDocumentsDirectory();
+  }
+
+  Future<File> _availableFile(Directory directory, String fileName) async {
+    final dotIndex = fileName.lastIndexOf('.');
+    final baseName = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
+    final extension = dotIndex > 0 ? fileName.substring(dotIndex) : '';
+    var candidate = File('${directory.path}${Platform.pathSeparator}$fileName');
+    var counter = 1;
+    while (await candidate.exists()) {
+      candidate = File(
+        '${directory.path}${Platform.pathSeparator}$baseName ($counter)$extension',
+      );
+      counter += 1;
+    }
+    return candidate;
+  }
+
+  Future<void> _showNotification({
+    required String title,
+    required String body,
+    required int? progress,
+    required bool ongoing,
+  }) async {
+    final androidDetails = Platform.isAndroid
+        ? AndroidNotificationDetails(
+            'Downloads',
+            'Downloads',
+            channelDescription: 'File download progress',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+            ongoing: ongoing,
+            onlyAlertOnce: true,
+            showProgress: true,
+            maxProgress: 100,
+            progress: progress ?? 0,
+            indeterminate: progress == null,
+          )
+        : null;
+    final iosDetails = Platform.isIOS
+        ? DarwinNotificationDetails(
+            presentAlert: !ongoing,
+            presentBadge: false,
+            presentSound: !ongoing,
+          )
+        : null;
+    if (androidDetails == null && iosDetails == null) {
+      return;
+    }
+    await _notifications.show(
+      _notificationId,
+      title,
+      (progress == null || !ongoing) ? body : '$body ($progress%)',
+      NotificationDetails(android: androidDetails, iOS: iosDetails),
+    );
+  }
+
+  String _forceDownload(String url) {
+    final uri = Uri.parse(url);
+    if (uri.queryParameters['download'] == 'true' ||
+        uri.queryParameters['download'] == '1') {
+      return url;
+    }
+    final params = Map<String, String>.from(uri.queryParameters);
+    params['download'] = 'true';
+    return uri.replace(queryParameters: params).toString();
+  }
+
+  String? _fileNameFromDisposition(String? contentDisposition) {
+    if (contentDisposition == null || contentDisposition.isEmpty) {
+      return null;
+    }
+    final encodedMatch = RegExp(
+      "filename\\*=UTF-8''([^;]+)",
+      caseSensitive: false,
+    ).firstMatch(contentDisposition);
+    if (encodedMatch != null) {
+      return Uri.decodeFull(encodedMatch.group(1)!.trim());
+    }
+    final quotedMatch = RegExp(
+      'filename="([^"]+)"',
+      caseSensitive: false,
+    ).firstMatch(contentDisposition);
+    if (quotedMatch != null) {
+      return quotedMatch.group(1)?.trim();
+    }
+    final plainMatch = RegExp(
+      'filename=([^;]+)',
+      caseSensitive: false,
+    ).firstMatch(contentDisposition);
+    return plainMatch?.group(1)?.trim();
+  }
+
+  String? _fileNameFromUrl(Uri uri) {
+    final filename =
+        uri.queryParameters['filename'] ??
+        uri.queryParameters['filename_field'] ??
+        (uri.pathSegments.isNotEmpty ? uri.pathSegments.last : null);
+    if (filename == null || filename.isEmpty || filename == 'content') {
+      return null;
+    }
+    return filename;
+  }
+
+  String _fallbackFileName(String contentType) {
+    final extension = _extensionFromMime(contentType) ?? 'bin';
+    return 'odoo_attachment_${DateTime.now().millisecondsSinceEpoch}.$extension';
+  }
+
+  String _sanitizeFileName(String fileName) {
+    final cleaned = fileName
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (cleaned.isEmpty || cleaned == '.' || cleaned == '..') {
+      return _fallbackFileName('');
+    }
+    return cleaned;
+  }
+
+  String? _extensionFromMime(String contentType) {
+    final mimeType = contentType.split(';').first.trim().toLowerCase();
+    switch (mimeType) {
+      case 'image/jpeg':
+        return 'jpg';
+      case 'image/png':
+        return 'png';
+      case 'image/gif':
+        return 'gif';
+      case 'application/pdf':
+        return 'pdf';
+      case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        return 'xlsx';
+      case 'application/vnd.ms-excel':
+        return 'xls';
+      default:
+        return null;
+    }
   }
 }
