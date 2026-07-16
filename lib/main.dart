@@ -1976,6 +1976,9 @@ class _OdooWebViewPageState extends State<OdooWebViewPage> {
         ),
       );
     } catch (error) {
+      try {
+        await _attachmentDownloader.cancelActiveDownload();
+      } catch (_) {}
       _downloadNotifier.value = null;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2147,6 +2150,7 @@ class OdooAttachmentDownloader {
        _notifications = notifications ?? FlutterLocalNotificationsPlugin();
 
   static int _nextNotificationId = 17001;
+  int? _activeNotificationId;
   final http.Client _client;
   final FlutterLocalNotificationsPlugin _notifications;
 
@@ -2158,6 +2162,7 @@ class OdooAttachmentDownloader {
     String? cookieOverride,
   }) async {
     final notificationId = _nextNotificationId++;
+    _activeNotificationId = notificationId;
     final request = http.Request('GET', Uri.parse(_forceDownload(url)));
     request.headers.addAll({
       // Prefer the live WebView cookie (passed as cookieOverride on Android);
@@ -2254,7 +2259,16 @@ class OdooAttachmentDownloader {
       progress: 100,
       ongoing: false,
     );
+    _activeNotificationId = null;
     return fileName;
+  }
+
+  Future<void> cancelActiveDownload() async {
+    final notificationId = _activeNotificationId;
+    _activeNotificationId = null;
+    if (notificationId != null) {
+      await _notifications.cancel(notificationId);
+    }
   }
 
   Future<Directory> _downloadsDirectory() async {

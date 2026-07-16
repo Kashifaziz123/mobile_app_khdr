@@ -8,6 +8,7 @@ import UserNotifications
 @objc class AppDelegate: FlutterAppDelegate {
   private var documentPickerResult: FlutterResult?
   private var documentPicker: UIDocumentPickerViewController?
+  private var downloadChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
@@ -42,30 +43,38 @@ import UserNotifications
 
     GeneratedPluginRegistrant.register(with: self)
 
-    if let controller = window?.rootViewController as? FlutterViewController {
-      let channel = FlutterMethodChannel(
-        name: "com.khdr/downloader",
-        binaryMessenger: controller.binaryMessenger
-      )
-      channel.setMethodCallHandler { [weak self] call, result in
-        guard let self = self else {
-          result(FlutterError(code: "APP_DELEGATE_UNAVAILABLE", message: nil, details: nil))
-          return
-        }
-        switch call.method {
-        case "exportFile":
-          guard let path = (call.arguments as? [String: Any])?["path"] as? String else {
-            result(FlutterError(code: "INVALID_PATH", message: "A file path is required.", details: nil))
-            return
-          }
-          self.exportFile(at: path, result: result)
-        default:
-          result(FlutterMethodNotImplemented)
-        }
-      }
-    }
+    configureDownloadChannelIfNeeded()
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  private func configureDownloadChannelIfNeeded() {
+    guard downloadChannel == nil,
+          let controller = activeRootViewController() as? FlutterViewController else {
+      return
+    }
+
+    let channel = FlutterMethodChannel(
+      name: "com.khdr/downloader",
+      binaryMessenger: controller.binaryMessenger
+    )
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else {
+        result(FlutterError(code: "APP_DELEGATE_UNAVAILABLE", message: nil, details: nil))
+        return
+      }
+      switch call.method {
+      case "exportFile":
+        guard let path = (call.arguments as? [String: Any])?["path"] as? String else {
+          result(FlutterError(code: "INVALID_PATH", message: "A file path is required.", details: nil))
+          return
+        }
+        self.exportFile(at: path, result: result)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+    downloadChannel = channel
   }
 
   private func exportFile(at path: String, result: @escaping FlutterResult) {
@@ -185,6 +194,7 @@ extension AppDelegate {
 extension AppDelegate {
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
+    configureDownloadChannelIfNeeded()
     if #available(iOS 16.0, *) {
       UNUserNotificationCenter.current().setBadgeCount(0, withCompletionHandler: nil)
     } else {
