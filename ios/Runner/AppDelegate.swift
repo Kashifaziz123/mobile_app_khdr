@@ -6,6 +6,9 @@ import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
+  private var documentPickerResult: FlutterResult?
+  private var documentPicker: UIDocumentPickerViewController?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -38,7 +41,83 @@ import UserNotifications
     }
 
     GeneratedPluginRegistrant.register(with: self)
+
+    if let controller = window?.rootViewController as? FlutterViewController {
+      let channel = FlutterMethodChannel(
+        name: "com.khdr/downloader",
+        binaryMessenger: controller.binaryMessenger
+      )
+      channel.setMethodCallHandler { [weak self] call, result in
+        guard let self = self else {
+          result(FlutterError(code: "APP_DELEGATE_UNAVAILABLE", message: nil, details: nil))
+          return
+        }
+        switch call.method {
+        case "exportFile":
+          guard let path = (call.arguments as? [String: Any])?["path"] as? String else {
+            result(FlutterError(code: "INVALID_PATH", message: "A file path is required.", details: nil))
+            return
+          }
+          self.exportFile(at: path, result: result)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
+    }
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  private func exportFile(at path: String, result: @escaping FlutterResult) {
+    guard documentPickerResult == nil else {
+      result(FlutterError(code: "EXPORT_IN_PROGRESS", message: "Another file is being exported.", details: nil))
+      return
+    }
+
+    let fileURL = URL(fileURLWithPath: path)
+    guard FileManager.default.fileExists(atPath: fileURL.path) else {
+      result(FlutterError(code: "FILE_NOT_FOUND", message: "The downloaded file no longer exists.", details: nil))
+      return
+    }
+
+    let picker: UIDocumentPickerViewController
+    if #available(iOS 14.0, *) {
+      picker = UIDocumentPickerViewController(forExporting: [fileURL], asCopy: true)
+    } else {
+      picker = UIDocumentPickerViewController(url: fileURL, in: .exportToService)
+    }
+    picker.delegate = self
+    picker.modalPresentationStyle = .formSheet
+    documentPicker = picker
+    documentPickerResult = result
+
+    guard let root = activeRootViewController() else {
+      finishDocumentExport(error: FlutterError(code: "NO_VIEW_CONTROLLER", message: nil, details: nil))
+      return
+    }
+    root.present(picker, animated: true)
+  }
+
+  private func activeRootViewController() -> UIViewController? {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    let window = scenes.flatMap(\.windows).first { $0.isKeyWindow }
+    guard let root = window?.rootViewController else { return nil }
+    var current = root
+    while let presented = current.presentedViewController {
+      current = presented
+    }
+    return current
+  }
+
+  private func finishDocumentExport(error: FlutterError? = nil) {
+    let result = documentPickerResult
+    documentPickerResult = nil
+    documentPicker = nil
+    if let error = error {
+      result?(error)
+    } else {
+      result?(true)
+    }
   }
 
   // Bridge APNs device token to Firebase so it can map to an FCM token
@@ -55,6 +134,16 @@ import UserNotifications
     didFailToRegisterForRemoteNotificationsWithError error: Error
   ) {
     print("Failed to register for remote notifications: \(error)")
+  }
+}
+
+extension AppDelegate: UIDocumentPickerDelegate {
+  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    finishDocumentExport()
+  }
+
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    finishDocumentExport()
   }
 }
 

@@ -2237,6 +2237,16 @@ class OdooAttachmentDownloader {
       await sink.close();
     }
 
+    // iOS cannot write directly to the shared Files/Downloads folder. Export
+    // the completed file through the system Files picker so the user can
+    // choose "On My iPhone > Downloads" (or another available provider).
+    if (Platform.isIOS) {
+      const channel = MethodChannel('com.khdr/downloader');
+      await channel.invokeMethod<bool>('exportFile', {
+        'path': destinationFile.path,
+      });
+    }
+
     await _showNotification(
       notificationId: notificationId,
       title: 'Download complete',
@@ -2266,7 +2276,19 @@ class OdooAttachmentDownloader {
       final ext = await getExternalStorageDirectory();
       if (ext != null) return ext;
     }
-    return getApplicationDocumentsDirectory();
+
+    // iOS has no public filesystem Downloads directory that an app can write
+    // to directly. Put downloads in the app's Documents directory instead;
+    // with UIFileSharingEnabled enabled, this is visible in Files under
+    // "On My iPhone/<app name>/Downloads".
+    final documents = await getApplicationDocumentsDirectory();
+    final downloads = Directory(
+      '${documents.path}${Platform.pathSeparator}Downloads',
+    );
+    if (!await downloads.exists()) {
+      await downloads.create(recursive: true);
+    }
+    return downloads;
   }
 
   Future<File> _availableFile(Directory directory, String fileName) async {
