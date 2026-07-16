@@ -50,13 +50,13 @@ import UserNotifications
 
   private func configureDownloadChannelIfNeeded() {
     guard downloadChannel == nil,
-          let controller = activeRootViewController() as? FlutterViewController else {
+          let registrar = registrar(forPlugin: "AlkhudorDownloader") else {
       return
     }
 
     let channel = FlutterMethodChannel(
       name: "com.khdr/downloader",
-      binaryMessenger: controller.binaryMessenger
+      binaryMessenger: registrar.messenger()
     )
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self = self else {
