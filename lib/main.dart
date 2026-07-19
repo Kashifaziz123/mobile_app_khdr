@@ -2282,17 +2282,10 @@ class OdooAttachmentDownloader {
     }
 
     // iOS has no public filesystem Downloads directory that an app can write
-    // to directly. Put downloads in the app's Documents directory instead;
-    // with UIFileSharingEnabled enabled, this is visible in Files under
-    // "On My iPhone/<app name>/Downloads".
-    final documents = await getApplicationDocumentsDirectory();
-    final downloads = Directory(
-      '${documents.path}${Platform.pathSeparator}Downloads',
-    );
-    if (!await downloads.exists()) {
-      await downloads.create(recursive: true);
-    }
-    return downloads;
+    // to directly. Save at the root of the app's Documents directory; with
+    // UIFileSharingEnabled enabled, this is visible in Files under
+    // "On My iPhone/<app name>" rather than its Downloads subfolder.
+    return getApplicationDocumentsDirectory();
   }
 
   Future<File> _availableFile(Directory directory, String fileName) async {
