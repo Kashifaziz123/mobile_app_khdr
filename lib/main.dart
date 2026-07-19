@@ -2242,16 +2242,6 @@ class OdooAttachmentDownloader {
       await sink.close();
     }
 
-    // iOS cannot write directly to the shared Files/Downloads folder. Export
-    // the completed file through the system Files picker so the user can
-    // choose "On My iPhone > Downloads" (or another available provider).
-    if (Platform.isIOS) {
-      const channel = MethodChannel('com.khdr/downloader');
-      await channel.invokeMethod<bool>('exportFile', {
-        'path': destinationFile.path,
-      });
-    }
-
     await _showNotification(
       notificationId: notificationId,
       title: 'Download complete',
