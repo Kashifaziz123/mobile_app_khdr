@@ -151,10 +151,18 @@ class _AppBootstrapState extends State<AppBootstrap> {
 
   Future<void> _configureIosDownloadsFolder() async {
     const channel = MethodChannel('com.khdr/downloader');
-    try {
-      await channel.invokeMethod<void>('configureDownloadFolder');
-    } catch (error) {
-      debugPrint('iOS Downloads folder access was not configured: $error');
+    for (var attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await channel.invokeMethod<void>('configureDownloadFolder');
+        return;
+      } catch (error) {
+        if (attempt == 1) {
+          debugPrint('iOS Downloads folder access was not configured: $error');
+          return;
+        }
+        // The native channel is installed after the iOS scene becomes active.
+        await Future<void>.delayed(const Duration(milliseconds: 750));
+      }
     }
   }
 

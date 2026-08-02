@@ -44,7 +44,19 @@ import Photos
 
     GeneratedPluginRegistrant.register(with: self)
 
+    // FlutterSceneDelegate owns the window in this project, so wait for the
+    // scene activation notification as well as trying immediately.
+    NotificationCenter.default.addObserver(
+      forName: UIScene.didActivateNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      self?.configureDownloadChannelIfPossible()
+    }
     configureDownloadChannelIfPossible()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+      self?.configureDownloadChannelIfPossible()
+    }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
