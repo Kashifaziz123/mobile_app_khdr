@@ -55,7 +55,10 @@ import Photos
     downloadChannelConfigured = true
     // Use Flutter's plugin registrar rather than a FlutterViewController.
     // This is safe with the scene-based lifecycle used by this app.
-    let registrar = self.registrar(forPlugin: "KhdrDownloadHandler")
+    guard let registrar = self.registrar(forPlugin: "KhdrDownloadHandler") else {
+      downloadChannelConfigured = false
+      return
+    }
     let downloadChannel = FlutterMethodChannel(
       name: "com.khdr/downloader",
       binaryMessenger: registrar.messenger()
