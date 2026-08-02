@@ -8,7 +8,6 @@ import Photos
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var downloadSaver: IOSDownloadSaver?
-  private var downloadsFolderPicker: IOSDownloadsFolderPicker?
   private var downloadChannelConfigured = false
 
   override func application(
@@ -44,47 +43,24 @@ import Photos
 
     GeneratedPluginRegistrant.register(with: self)
 
-    // FlutterSceneDelegate owns the window in this project, so wait for the
-    // scene activation notification as well as trying immediately.
-    NotificationCenter.default.addObserver(
-      forName: UIScene.didActivateNotification,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in
-      self?.configureDownloadChannelIfPossible()
-    }
     configureDownloadChannelIfPossible()
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-      self?.configureDownloadChannelIfPossible()
-    }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   private func configureDownloadChannelIfPossible() {
-    guard !downloadChannelConfigured,
-          let controller = flutterViewController()
-    else {
+    guard !downloadChannelConfigured else {
       return
     }
     downloadChannelConfigured = true
+    // Use Flutter's plugin registrar rather than a FlutterViewController.
+    // This is safe with the scene-based lifecycle used by this app.
+    let registrar = self.registrar(forPlugin: "KhdrDownloadHandler")
     let downloadChannel = FlutterMethodChannel(
       name: "com.khdr/downloader",
-      binaryMessenger: controller.binaryMessenger
+      binaryMessenger: registrar.messenger()
     )
     downloadChannel.setMethodCallHandler { [weak self] call, result in
-      if call.method == "configureDownloadFolder" {
-        if IOSDownloadSaver.hasConfiguredDownloadsFolder {
-          result(nil)
-          return
-        }
-        let picker = IOSDownloadsFolderPicker()
-        self?.downloadsFolderPicker = picker
-        picker.selectFolder(result: result) { [weak self] in
-          self?.downloadsFolderPicker = nil
-        }
-        return
-      }
       guard call.method == "saveDownloadedFile" else {
         result(FlutterMethodNotImplemented)
         return
@@ -106,18 +82,6 @@ import Photos
     }
   }
 
-  private func flutterViewController() -> FlutterViewController? {
-    if let controller = window?.rootViewController as? FlutterViewController {
-      return controller
-    }
-    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-    return scenes
-      .flatMap(\.windows)
-      .compactMap(\.rootViewController)
-      .compactMap { $0 as? FlutterViewController }
-      .first
-  }
-
   // Bridge APNs device token to Firebase so it can map to an FCM token
   override func application(
     _ application: UIApplication,
@@ -136,7 +100,6 @@ import Photos
 
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
-    configureDownloadChannelIfPossible()
     if #available(iOS 16.0, *) {
       UNUserNotificationCenter.current().setBadgeCount(0, withCompletionHandler: nil)
     } else {
@@ -168,7 +131,7 @@ private final class IOSDownloadSaver: NSObject {
       if isImage {
         self.saveImageToPhotos(fileURL)
       } else {
-        self.copyToDownloadsFolder(fileURL)
+        self.finish("documents")
       }
     }
   }
@@ -237,78 +200,9 @@ private final class IOSDownloadSaver: NSObject {
     }
   }
 
-  private func copyToDownloadsFolder(_ fileURL: URL) {
-    do {
-      guard let directory = try Self.configuredDownloadsFolder() else {
-        finish(FlutterError(code: "downloads_folder_not_configured", message: "Choose the Downloads folder when the app opens before downloading files.", details: nil))
-        return
-      }
-      guard directory.startAccessingSecurityScopedResource() else {
-        finish(FlutterError(code: "downloads_folder_access_denied", message: "The app no longer has access to Downloads. Restart it and select Downloads again.", details: nil))
-        return
-      }
-      defer { directory.stopAccessingSecurityScopedResource() }
-      let destination = uniqueFileURL(in: directory, named: fileURL.lastPathComponent)
-      try FileManager.default.copyItem(at: fileURL, to: destination)
-      finish("downloads")
-    } catch {
-      finish(FlutterError(code: "downloads_save_failed", message: error.localizedDescription, details: nil))
-    }
-  }
-
-  private func uniqueFileURL(in directory: URL, named fileName: String) -> URL {
-    let source = URL(fileURLWithPath: fileName)
-    let base = source.deletingPathExtension().lastPathComponent
-    let ext = source.pathExtension
-    var index = 0
-    var candidate = directory.appendingPathComponent(fileName)
-    while FileManager.default.fileExists(atPath: candidate.path) {
-      index += 1
-      let suffix = " (\(index))"
-      candidate = directory.appendingPathComponent(ext.isEmpty ? "\(base)\(suffix)" : "\(base)\(suffix).\(ext)")
-    }
-    return candidate
-  }
-
-  static let downloadsFolderBookmarkKey = "khdr.downloadsFolderBookmark"
-
-  static var hasConfiguredDownloadsFolder: Bool {
-    UserDefaults.standard.data(forKey: downloadsFolderBookmarkKey) != nil
-  }
-
-  static func configuredDownloadsFolder() throws -> URL? {
-    guard let data = UserDefaults.standard.data(forKey: downloadsFolderBookmarkKey) else {
-      return nil
-    }
-    var isStale = false
-    let directory = try URL(
-      resolvingBookmarkData: data,
-      options: [],
-      relativeTo: nil,
-      bookmarkDataIsStale: &isStale
-    )
-    if isStale {
-      let refreshed = try directory.bookmarkData(
-        options: [.minimalBookmark],
-        includingResourceValuesForKeys: nil,
-        relativeTo: nil
-      )
-      UserDefaults.standard.set(refreshed, forKey: downloadsFolderBookmarkKey)
-    }
-    return directory
-  }
-
-  static func setDownloadsFolder(_ directory: URL) throws {
-    let bookmark = try directory.bookmarkData(
-      options: [.minimalBookmark],
-      includingResourceValuesForKeys: nil,
-      relativeTo: nil
-    )
-    UserDefaults.standard.set(bookmark, forKey: downloadsFolderBookmarkKey)
-  }
-
   private func finish(_ value: Any?) {
-    temporaryFileURL.map { try? FileManager.default.removeItem(at: $0) }
+    // Keep every completed download in the app Documents directory, which is
+    // exposed in Files under On My iPhone > Alkhudor App.
     temporaryFileURL = nil
     let callback = result
     result = nil
@@ -317,83 +211,6 @@ private final class IOSDownloadSaver: NSObject {
     completion = nil
     done?()
   }
-}
-
-private final class IOSDownloadsFolderPicker: NSObject, UIDocumentPickerDelegate {
-  private var result: FlutterResult?
-  private var completion: (() -> Void)?
-
-  func selectFolder(result: @escaping FlutterResult, completion: @escaping () -> Void) {
-    self.result = result
-    self.completion = completion
-    DispatchQueue.main.async {
-      guard let presenter = activeViewController() else {
-        self.finish(FlutterError(code: "no_presenter", message: "Unable to show the Downloads folder selector.", details: nil))
-        return
-      }
-      let alert = UIAlertController(
-        title: "Choose Downloads Folder",
-        message: "Select Downloads in the next screen. Odoo files will then save there automatically without asking again.",
-        preferredStyle: .alert
-      )
-      alert.addAction(UIAlertAction(title: "Not Now", style: .cancel) { _ in
-        self.finish(FlutterError(code: "downloads_folder_cancelled", message: "Choose Downloads to enable automatic file downloads.", details: nil))
-      })
-      alert.addAction(UIAlertAction(title: "Choose Downloads", style: .default) { _ in
-        self.presentFolderPicker(from: presenter)
-      })
-      presenter.present(alert, animated: true)
-    }
-  }
-
-  private func presentFolderPicker(from presenter: UIViewController) {
-    let picker = UIDocumentPickerViewController(documentTypes: ["public.folder"], in: .open)
-    picker.delegate = self
-    picker.allowsMultipleSelection = false
-    picker.modalPresentationStyle = .formSheet
-    presenter.present(picker, animated: true)
-  }
-
-  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-    guard let directory = urls.first else {
-      finish(FlutterError(code: "downloads_folder_missing", message: "No Downloads folder was selected.", details: nil))
-      return
-    }
-    guard directory.startAccessingSecurityScopedResource() else {
-      finish(FlutterError(code: "downloads_folder_access_denied", message: "iOS did not grant access to the selected folder.", details: nil))
-      return
-    }
-    defer { directory.stopAccessingSecurityScopedResource() }
-    do {
-      try IOSDownloadSaver.setDownloadsFolder(directory)
-      finish(nil)
-    } catch {
-      finish(FlutterError(code: "downloads_folder_save_failed", message: error.localizedDescription, details: nil))
-    }
-  }
-
-  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-    finish(FlutterError(code: "downloads_folder_cancelled", message: "Choose Downloads to enable automatic file downloads.", details: nil))
-  }
-
-  private func finish(_ value: Any?) {
-    let callback = result
-    result = nil
-    callback?(value)
-    let done = completion
-    completion = nil
-    done?()
-  }
-}
-
-private func activeViewController() -> UIViewController? {
-  let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-  let root = scenes.flatMap(\.windows).first(where: { $0.isKeyWindow })?.rootViewController
-  var visible = root
-  while let presented = visible?.presentedViewController {
-    visible = presented
-  }
-  return visible
 }
 
 // MARK: - MessagingDelegate

@@ -141,29 +141,7 @@ class _AppBootstrapState extends State<AppBootstrap> {
   @override
   void initState() {
     super.initState();
-    if (Platform.isIOS) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _configureIosDownloadsFolder();
-      });
-    }
     _initialize();
-  }
-
-  Future<void> _configureIosDownloadsFolder() async {
-    const channel = MethodChannel('com.khdr/downloader');
-    for (var attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        await channel.invokeMethod<void>('configureDownloadFolder');
-        return;
-      } catch (error) {
-        if (attempt == 1) {
-          debugPrint('iOS Downloads folder access was not configured: $error');
-          return;
-        }
-        // The native channel is installed after the iOS scene becomes active.
-        await Future<void>.delayed(const Duration(milliseconds: 750));
-      }
-    }
   }
 
   Future<void> _initialize() async {
@@ -2264,12 +2242,12 @@ class OdooAttachmentDownloader {
       await sink.close();
     }
 
-    // iOS transfers completed files natively: images go to Photos and other
-    // attachments go to the Downloads folder selected once at app startup.
-    if (Platform.isIOS) {
+    // On iOS, all files stay in the app Documents folder. Image files are
+    // additionally added to the user's Photos library.
+    if (Platform.isIOS && _isImageDownload(fileName, contentType)) {
       await _saveIosDownload(
         destinationFile,
-        isImage: _isImageDownload(fileName, contentType),
+        isImage: true,
       );
     }
 
@@ -2312,9 +2290,9 @@ class OdooAttachmentDownloader {
       if (ext != null) return ext;
     }
 
-    // iOS files are staged temporarily before native code saves them to Photos
-    // or to the user-authorized Downloads directory.
-    return getTemporaryDirectory();
+    // UIFileSharingEnabled exposes this directory in Files as
+    // On My iPhone > Alkhudor App.
+    return getApplicationDocumentsDirectory();
   }
 
   Future<void> _saveIosDownload(File file, {required bool isImage}) async {
@@ -2358,6 +2336,11 @@ class OdooAttachmentDownloader {
     required int? progress,
     required bool ongoing,
   }) async {
+    // The app already has an in-app progress indicator. Suppress iOS local
+    // notifications to avoid a banner for every download-progress update.
+    if (Platform.isIOS) {
+      return;
+    }
     final androidDetails = Platform.isAndroid
         ? AndroidNotificationDetails(
             'Downloads',
@@ -2373,21 +2356,14 @@ class OdooAttachmentDownloader {
             indeterminate: progress == null,
           )
         : null;
-    final iosDetails = Platform.isIOS
-        ? DarwinNotificationDetails(
-            presentAlert: !ongoing,
-            presentBadge: false,
-            presentSound: !ongoing,
-          )
-        : null;
-    if (androidDetails == null && iosDetails == null) {
+    if (androidDetails == null) {
       return;
     }
     await _notifications.show(
       notificationId,
       title,
       (progress == null || !ongoing) ? body : '$body ($progress%)',
-      NotificationDetails(android: androidDetails, iOS: iosDetails),
+      NotificationDetails(android: androidDetails),
     );
   }
 
