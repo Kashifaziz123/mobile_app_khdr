@@ -141,7 +141,21 @@ class _AppBootstrapState extends State<AppBootstrap> {
   @override
   void initState() {
     super.initState();
+    if (Platform.isIOS) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _configureIosDownloadsFolder();
+      });
+    }
     _initialize();
+  }
+
+  Future<void> _configureIosDownloadsFolder() async {
+    const channel = MethodChannel('com.khdr/downloader');
+    try {
+      await channel.invokeMethod<void>('configureDownloadFolder');
+    } catch (error) {
+      debugPrint('iOS Downloads folder access was not configured: $error');
+    }
   }
 
   Future<void> _initialize() async {
@@ -2242,6 +2256,15 @@ class OdooAttachmentDownloader {
       await sink.close();
     }
 
+    // iOS transfers completed files natively: images go to Photos and other
+    // attachments go to the Downloads folder selected once at app startup.
+    if (Platform.isIOS) {
+      await _saveIosDownload(
+        destinationFile,
+        isImage: _isImageDownload(fileName, contentType),
+      );
+    }
+
     await _showNotification(
       notificationId: notificationId,
       title: 'Download complete',
@@ -2281,11 +2304,28 @@ class OdooAttachmentDownloader {
       if (ext != null) return ext;
     }
 
-    // iOS has no public filesystem Downloads directory that an app can write
-    // to directly. Save at the root of the app's Documents directory; with
-    // UIFileSharingEnabled enabled, this is visible in Files under
-    // "On My iPhone/<app name>" rather than its Downloads subfolder.
-    return getApplicationDocumentsDirectory();
+    // iOS files are staged temporarily before native code saves them to Photos
+    // or to the user-authorized Downloads directory.
+    return getTemporaryDirectory();
+  }
+
+  Future<void> _saveIosDownload(File file, {required bool isImage}) async {
+    const channel = MethodChannel('com.khdr/downloader');
+    await channel.invokeMethod<void>('saveDownloadedFile', {
+      'path': file.path,
+      'isImage': isImage,
+    });
+  }
+
+  bool _isImageDownload(String fileName, String contentType) {
+    if (contentType.split(';').first.trim().toLowerCase().startsWith('image/')) {
+      return true;
+    }
+    final extension = fileName.split('.').last.toLowerCase();
+    return const {
+      'avif', 'bmp', 'gif', 'heic', 'heif', 'jpeg', 'jpg', 'png', 'tif',
+      'tiff', 'webp',
+    }.contains(extension);
   }
 
   Future<File> _availableFile(Directory directory, String fileName) async {
