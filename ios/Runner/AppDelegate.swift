@@ -9,6 +9,7 @@ import Photos
 @objc class AppDelegate: FlutterAppDelegate {
   private var downloadSaver: IOSDownloadSaver?
   private var downloadsFolderPicker: IOSDownloadsFolderPicker?
+  private var downloadChannelConfigured = false
 
   override func application(
     _ application: UIApplication,
@@ -43,7 +44,18 @@ import Photos
 
     GeneratedPluginRegistrant.register(with: self)
 
-    let controller = window?.rootViewController as! FlutterViewController
+    configureDownloadChannelIfPossible()
+
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  private func configureDownloadChannelIfPossible() {
+    guard !downloadChannelConfigured,
+          let controller = flutterViewController()
+    else {
+      return
+    }
+    downloadChannelConfigured = true
     let downloadChannel = FlutterMethodChannel(
       name: "com.khdr/downloader",
       binaryMessenger: controller.binaryMessenger
@@ -80,8 +92,18 @@ import Photos
         self?.downloadSaver = nil
       }
     }
+  }
 
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  private func flutterViewController() -> FlutterViewController? {
+    if let controller = window?.rootViewController as? FlutterViewController {
+      return controller
+    }
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    return scenes
+      .flatMap(\.windows)
+      .compactMap(\.rootViewController)
+      .compactMap { $0 as? FlutterViewController }
+      .first
   }
 
   // Bridge APNs device token to Firebase so it can map to an FCM token
@@ -98,6 +120,16 @@ import Photos
     didFailToRegisterForRemoteNotificationsWithError error: Error
   ) {
     print("Failed to register for remote notifications: \(error)")
+  }
+
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    super.applicationDidBecomeActive(application)
+    configureDownloadChannelIfPossible()
+    if #available(iOS 16.0, *) {
+      UNUserNotificationCenter.current().setBadgeCount(0, withCompletionHandler: nil)
+    } else {
+      application.applicationIconBadgeNumber = 0
+    }
   }
 }
 
@@ -383,17 +415,5 @@ extension AppDelegate {
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
     completionHandler()
-  }
-}
-
-// MARK: - Badge clearing
-extension AppDelegate {
-  override func applicationDidBecomeActive(_ application: UIApplication) {
-    super.applicationDidBecomeActive(application)
-    if #available(iOS 16.0, *) {
-      UNUserNotificationCenter.current().setBadgeCount(0, withCompletionHandler: nil)
-    } else {
-      application.applicationIconBadgeNumber = 0
-    }
   }
 }
