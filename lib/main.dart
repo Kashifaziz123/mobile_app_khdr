@@ -16,8 +16,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 const appTitle = 'Alkhudor';
 const fixedBaseUrl = 'https://khdrcars.com';
 const fixedDatabaseName = 'khdrcars';
-// AlKhoder Autocar logo asset
-const logoImageAsset = 'assets/logo.png';
+// AlKhedr brand mark used on the login screen.
+const logoImageAsset = 'assets/alkhedr_logo.png';
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 const _odooNotificationChannels = <AndroidNotificationChannel>[
@@ -409,22 +409,34 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
       labelText: label,
       hintText: placeholder,
       filled: true,
-      fillColor: const Color(0xFFF9FAFB),
-      prefixIcon: Icon(icon),
+      fillColor: Colors.white.withValues(alpha: 0.82),
+      labelStyle: const TextStyle(color: Color(0xFF31576A), fontSize: 16),
+      hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+      prefixIcon: Padding(
+        padding: const EdgeInsets.all(10),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0F6F8),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: const Color(0xFF31576A), size: 23),
+        ),
+      ),
+      prefixIconConstraints: const BoxConstraints(minWidth: 64, minHeight: 64),
       suffixIcon: suffix,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFE5E5E5), width: 2),
+        borderRadius: BorderRadius.circular(20),
+        borderSide: const BorderSide(color: Color(0xFFD3DCE3), width: 1.2),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFE5E5E5), width: 2),
+        borderRadius: BorderRadius.circular(20),
+        borderSide: const BorderSide(color: Color(0xFFD3DCE3), width: 1.2),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFFDC2626), width: 2),
+        borderRadius: BorderRadius.circular(20),
+        borderSide: const BorderSide(color: Color(0xFF0D637A), width: 1.8),
       ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 22),
     );
   }
 
@@ -795,7 +807,7 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
     final hasMultipleDatabases = _databases.length > 1;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF9FBFC),
       resizeToAvoidBottomInset: false,
       body: Directionality(
         textDirection: _isArabic ? TextDirection.rtl : TextDirection.ltr,
@@ -803,35 +815,31 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
           children: [
             Container(
               width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFFdc2626), Color(0xFF991b1b)],
-                ),
-              ),
-              padding: const EdgeInsets.fromLTRB(0, 30, 0, 20),
+              color: Colors.transparent,
+              padding: const EdgeInsets.fromLTRB(0, 24, 0, 8),
               child: Stack(
                 children: [
                   Positioned(
                     top: 0,
-                    right: _isArabic ? null : 0,
-                    left: _isArabic ? 0 : null,
+                    right: _isArabic ? null : 20,
+                    left: _isArabic ? 20 : null,
                     child: IconButton(
                       onPressed: _toggleLanguage,
-                      icon: const Icon(
-                        Icons.language,
-                        color: Colors.white,
-                        size: 24,
+                      icon: Text(
+                        _isArabic ? 'EN' : 'ع',
+                        style: const TextStyle(
+                          color: Color(0xFF0D5368),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       style: IconButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.2),
-                        padding: const EdgeInsets.all(12),
+                        backgroundColor: Colors.white,
+                        minimumSize: const Size(52, 52),
+                        padding: const EdgeInsets.all(10),
+                        side: const BorderSide(color: Color(0xFFD7E0E5)),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.only(
-                            bottomLeft: Radius.circular(20),
-                            bottomRight: Radius.circular(20),
-                          ),
+                          borderRadius: BorderRadius.circular(26),
                         ),
                       ),
                     ),
@@ -840,55 +848,33 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     child: Column(
                       children: [
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 28),
                         Center(
-                          child: Container(
-                            width: 150,
-                            height: 150,
-                            decoration: BoxDecoration(
-                              color: Colors.transparent,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Image.asset(
-                              logoImageAsset,
-                              fit: BoxFit.contain,
-                              width: 150,
-                              height: 150,
-                              errorBuilder: (context, error, stackTrace) {
-                                debugPrint('Error loading logo: $error');
-                                return Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: const Icon(
-                                    Icons.directions_car,
-                                    size: 60,
-                                    color: Color(0xFFdc2626),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _text('Welcome Back', 'مرحباً بعودتك'),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
+                          child: Image.asset(
+                            logoImageAsset,
+                            width: 280,
+                            height: 210,
+                            fit: BoxFit.contain,
                           ),
                         ),
                         const SizedBox(height: 4),
+                        Text(
+                          _text('Welcome Back', 'مرحباً بعودتك'),
+                          style: const TextStyle(
+                            color: Color(0xFF1E2C3B),
+                            fontSize: 34,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         Text(
                           _text(
                             'Login to access your account',
                             'قم بتسجيل الدخول للوصول إلى حسابك',
                           ),
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 13,
+                            color: Color(0xFF7890A3),
+                            fontSize: 17,
                           ),
                         ),
                       ],
@@ -901,8 +887,8 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
               child: SingleChildScrollView(
                 child: Container(
                   width: double.infinity,
-                  color: Colors.white,
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+                  color: Colors.transparent,
+                  padding: const EdgeInsets.fromLTRB(36, 22, 36, 18),
                   child: Form(
                     key: _formKey,
                     child: Column(
@@ -1021,33 +1007,33 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 16),
                         Container(
-                          height: 48,
+                          height: 68,
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
-                              colors: [Color(0xFFdc2626), Color(0xFF991b1b)],
+                              colors: [Color(0xFF1C8BA5), Color(0xFF0C4056)],
                             ),
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(22),
                           ),
                           child: ElevatedButton(
                             onPressed: _isLoggingIn ? null : _login,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.transparent,
                               shadowColor: Colors.transparent,
-                              minimumSize: const Size.fromHeight(48),
+                              minimumSize: const Size.fromHeight(68),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(22),
                               ),
                             ),
                             child: Text(
-                              _text('Log in', 'تسجيل الدخول'),
+                              '${_text('Log in', 'تسجيل الدخول')}  →',
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
