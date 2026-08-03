@@ -2242,12 +2242,13 @@ class OdooAttachmentDownloader {
       await sink.close();
     }
 
-    // On iOS, all files stay in the app Documents folder. Image files are
-    // additionally added to the user's Photos library.
-    if (Platform.isIOS && _isImageDownload(fileName, contentType)) {
+    // On iOS, all files stay in the app Documents folder. Native iOS also
+    // inspects every completed file and saves actual images to Photos, even
+    // when Odoo supplied a generic MIME type or extension-less URL.
+    if (Platform.isIOS) {
       await _saveIosDownload(
         destinationFile,
-        isImage: true,
+        isImage: _isImageDownload(fileName, contentType),
       );
     }
 

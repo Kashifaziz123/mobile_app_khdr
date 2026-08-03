@@ -131,7 +131,10 @@ private final class IOSDownloadSaver: NSObject {
         self.finish(FlutterError(code: "missing_file", message: "The downloaded file is no longer available.", details: nil))
         return
       }
-      if isImage {
+      // Odoo sometimes responds with application/octet-stream or an URL with
+      // no image extension. Inspect the actual file so those images are not
+      // skipped by the Dart filename/MIME heuristic.
+      if isImage || UIImage(contentsOfFile: fileURL.path) != nil {
         self.saveImageToPhotos(fileURL)
       } else {
         self.finish("documents")
@@ -196,10 +199,36 @@ private final class IOSDownloadSaver: NSObject {
       DispatchQueue.main.async {
         if success {
           self?.finish("photos")
+        } else if let image = UIImage(contentsOfFile: fileURL.path) {
+          // Some image encodings are not accepted by PhotoKit directly even
+          // though UIKit can decode them. Re-encode through UIKit as a final
+          // Photos-library fallback.
+          self?.saveUIKitImageToPhotos(image)
         } else {
           self?.finish(FlutterError(code: "photos_save_failed", message: error?.localizedDescription ?? "iOS could not save this image to Photos.", details: nil))
         }
       }
+    }
+  }
+
+  private func saveUIKitImageToPhotos(_ image: UIImage) {
+    UIImageWriteToSavedPhotosAlbum(
+      image,
+      self,
+      #selector(image(_:didFinishSavingWithError:contextInfo:)),
+      nil
+    )
+  }
+
+  @objc private func image(
+    _ image: UIImage,
+    didFinishSavingWithError error: Error?,
+    contextInfo: UnsafeMutableRawPointer?
+  ) {
+    if let error {
+      finish(FlutterError(code: "photos_save_failed", message: error.localizedDescription, details: nil))
+    } else {
+      finish("photos")
     }
   }
 
