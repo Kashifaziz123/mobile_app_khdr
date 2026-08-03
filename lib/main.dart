@@ -321,6 +321,14 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
 
   String? _getStatusMessage() {
     if (_statusMessageKey == null) return null;
+    // Successful health checks and the temporary pre-login check are not user
+    // messages. The button loader communicates that work is in progress.
+    if (_statusMessageKey == 'server_ok_single' ||
+        _statusMessageKey == 'server_ok_multiple' ||
+        _statusMessageKey == 'checking_before_login' ||
+        _statusMessageKey == 'login_success') {
+      return null;
+    }
     switch (_statusMessageKey) {
       case 'enter_valid_url':
         return _text('Enter a valid Odoo URL.', 'أدخل رابط أودو صحيح.');
@@ -809,312 +817,448 @@ class _OdooSetupPageState extends State<OdooSetupPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF9FBFC),
       resizeToAvoidBottomInset: false,
-      body: Directionality(
-        textDirection: _isArabic ? TextDirection.rtl : TextDirection.ltr,
-        child: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              color: Colors.transparent,
-              padding: const EdgeInsets.fromLTRB(0, 24, 0, 8),
-              child: Stack(
-                children: [
-                  Positioned(
-                    top: 0,
-                    right: _isArabic ? null : 20,
-                    left: _isArabic ? 20 : null,
-                    child: IconButton(
-                      onPressed: _toggleLanguage,
-                      icon: Text(
-                        _isArabic ? 'EN' : 'ع',
-                        style: const TextStyle(
-                          color: Color(0xFF0D5368),
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        minimumSize: const Size(52, 52),
-                        padding: const EdgeInsets.all(10),
-                        side: const BorderSide(color: Color(0xFFD7E0E5)),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(26),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 28),
-                        Center(
-                          child: Image.asset(
-                            logoImageAsset,
-                            width: 280,
-                            height: 210,
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _text('Welcome Back', 'مرحباً بعودتك'),
-                          style: const TextStyle(
-                            color: Color(0xFF1E2C3B),
-                            fontSize: 34,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _text(
-                            'Login to access your account',
-                            'قم بتسجيل الدخول للوصول إلى حسابك',
-                          ),
-                          style: TextStyle(
-                            color: Color(0xFF7890A3),
-                            fontSize: 17,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Container(
+      body: Stack(
+        children: [
+          const Positioned.fill(child: IgnorePointer(child: _LoginBackdrop())),
+          Directionality(
+            textDirection: _isArabic ? TextDirection.rtl : TextDirection.ltr,
+            child: Column(
+              children: [
+                Container(
                   width: double.infinity,
                   color: Colors.transparent,
-                  padding: const EdgeInsets.fromLTRB(36, 22, 36, 18),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (hasMultipleDatabases)
-                          DropdownButtonFormField<String>(
-                            value: _selectedDb,
-                            isExpanded: true,
-                            items: _databases
-                                .map(
-                                  (db) => DropdownMenuItem(
-                                    value: db,
-                                    child: Text(
-                                      db,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) {
-                              setState(() {
-                                _selectedDb = value;
-                              });
-                            },
-                            decoration: _inputDecoration(
-                              label: _text('Database', 'قاعدة البيانات'),
-                              placeholder: _text(
-                                'Select database',
-                                'اختر قاعدة البيانات',
-                              ),
-                              icon: Icons.storage,
+                  padding: const EdgeInsets.fromLTRB(0, 24, 0, 8),
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        top: 0,
+                        right: _isArabic ? null : 20,
+                        left: _isArabic ? 20 : null,
+                        child: IconButton(
+                          onPressed: _toggleLanguage,
+                          icon: Text(
+                            _isArabic ? 'EN' : 'ع',
+                            style: const TextStyle(
+                              color: Color(0xFF0D5368),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
                             ),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return _text(
-                                  'Select a database',
-                                  'اختر قاعدة البيانات',
-                                );
-                              }
-                              return null;
-                            },
                           ),
-                        if (hasMultipleDatabases) const SizedBox(height: 10),
-                        TextFormField(
-                          controller: _loginController,
-                          decoration: _inputDecoration(
-                            label: _text('Email', 'البريد الإلكتروني'),
-                            placeholder: _text(
-                              'Enter your email',
-                              'أدخل بريدك الإلكتروني',
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            minimumSize: const Size(52, 52),
+                            padding: const EdgeInsets.all(10),
+                            side: const BorderSide(color: Color(0xFFD7E0E5)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(26),
                             ),
-                            icon: Icons.email,
                           ),
-                          textInputAction: TextInputAction.next,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return _text(
-                                'Enter login',
-                                'أدخل البريد الإلكتروني',
-                              );
-                            }
-                            return null;
-                          },
                         ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: _passwordController,
-                          decoration: _inputDecoration(
-                            label: _text('Password', 'كلمة المرور'),
-                            placeholder: _text(
-                              'Enter your password',
-                              'أدخل كلمة المرور',
-                            ),
-                            icon: Icons.lock,
-                            suffix: IconButton(
-                              onPressed: () {
-                                setState(() {
-                                  _obscurePassword = !_obscurePassword;
-                                });
-                              },
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 28),
+                            Center(
+                              child: Image.asset(
+                                logoImageAsset,
+                                width: 280,
+                                height: 210,
+                                fit: BoxFit.contain,
                               ),
                             ),
-                          ),
-                          obscureText: _obscurePassword,
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return _text(
-                                'Enter password',
-                                'أدخل كلمة المرور',
-                              );
-                            }
-                            return null;
-                          },
-                        ),
-                        Align(
-                          alignment: _isArabic
-                              ? Alignment.centerLeft
-                              : Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: _openResetPassword,
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                            ),
-                            child: Text(
-                              _text('Forgot password?', 'نسيت كلمة المرور؟'),
+                            const SizedBox(height: 4),
+                            Text(
+                              _text('Welcome Back', 'مرحباً بعودتك'),
                               style: const TextStyle(
-                                color: Color(0xFFDC2626),
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Container(
-                          height: 68,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [Color(0xFF1C8BA5), Color(0xFF0C4056)],
-                            ),
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                          child: ElevatedButton(
-                            onPressed: _isLoggingIn ? null : _login,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              shadowColor: Colors.transparent,
-                              minimumSize: const Size.fromHeight(68),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(22),
-                              ),
-                            ),
-                            child: Text(
-                              '${_text('Log in', 'تسجيل الدخول')}  →',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
+                                color: Color(0xFF1E2C3B),
+                                fontSize: 34,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                          ),
-                        ),
-                        if (_getStatusMessage() != null) ...[
-                          const SizedBox(height: 16),
-                          Text(
-                            _getStatusMessage()!,
-                            style: const TextStyle(color: Color(0xFFDC2626)),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Container(
-              width: double.infinity,
-              color: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      TextButton(
-                        onPressed: () {},
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                        ),
-                        child: Text(
-                          _text('Need Help?', 'تحتاج مساعدة؟'),
-                          style: const TextStyle(
-                            color: Color(0xFF6B7280),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      TextButton(
-                        onPressed: () {},
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                        ),
-                        child: Text(
-                          _text('Terms & Conditions', 'الشروط والأحكام'),
-                          style: const TextStyle(
-                            color: Color(0xFF6B7280),
-                            fontSize: 12,
-                          ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _text(
+                                'Login to access your account',
+                                'قم بتسجيل الدخول للوصول إلى حسابك',
+                              ),
+                              style: TextStyle(
+                                color: Color(0xFF7890A3),
+                                fontSize: 17,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _text(
-                      '© 2026 AlKhoder Autocar. All rights reserved.',
-                      '© 2026 الخضر للسيارات. جميع الحقوق محفوظة.',
-                    ),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Color(0xFF9CA3AF),
-                      fontSize: 11,
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Container(
+                      width: double.infinity,
+                      color: Colors.transparent,
+                      padding: const EdgeInsets.fromLTRB(36, 22, 36, 18),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (hasMultipleDatabases)
+                              DropdownButtonFormField<String>(
+                                value: _selectedDb,
+                                isExpanded: true,
+                                items: _databases
+                                    .map(
+                                      (db) => DropdownMenuItem(
+                                        value: db,
+                                        child: Text(
+                                          db,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedDb = value;
+                                  });
+                                },
+                                decoration: _inputDecoration(
+                                  label: _text('Database', 'قاعدة البيانات'),
+                                  placeholder: _text(
+                                    'Select database',
+                                    'اختر قاعدة البيانات',
+                                  ),
+                                  icon: Icons.storage,
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) {
+                                    return _text(
+                                      'Select a database',
+                                      'اختر قاعدة البيانات',
+                                    );
+                                  }
+                                  return null;
+                                },
+                              ),
+                            if (hasMultipleDatabases)
+                              const SizedBox(height: 10),
+                            TextFormField(
+                              controller: _loginController,
+                              decoration: _inputDecoration(
+                                label: _text('Email', 'البريد الإلكتروني'),
+                                placeholder: _text(
+                                  'Enter your email',
+                                  'أدخل بريدك الإلكتروني',
+                                ),
+                                icon: Icons.email,
+                              ),
+                              textInputAction: TextInputAction.next,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return _text(
+                                    'Enter login',
+                                    'أدخل البريد الإلكتروني',
+                                  );
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: _passwordController,
+                              decoration: _inputDecoration(
+                                label: _text('Password', 'كلمة المرور'),
+                                placeholder: _text(
+                                  'Enter your password',
+                                  'أدخل كلمة المرور',
+                                ),
+                                icon: Icons.lock,
+                                suffix: IconButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _obscurePassword = !_obscurePassword;
+                                    });
+                                  },
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility
+                                        : Icons.visibility_off,
+                                  ),
+                                ),
+                              ),
+                              obscureText: _obscurePassword,
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return _text(
+                                    'Enter password',
+                                    'أدخل كلمة المرور',
+                                  );
+                                }
+                                return null;
+                              },
+                            ),
+                            Align(
+                              alignment: _isArabic
+                                  ? Alignment.centerLeft
+                                  : Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: _openResetPassword,
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4,
+                                  ),
+                                ),
+                                child: Text(
+                                  _text(
+                                    'Forgot password?',
+                                    'نسيت كلمة المرور؟',
+                                  ),
+                                  style: const TextStyle(
+                                    color: Color(0xFFDC2626),
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Container(
+                              height: 68,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Color(0xFF1C8BA5),
+                                    Color(0xFF0C4056),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(22),
+                              ),
+                              child: ElevatedButton(
+                                onPressed: _isLoggingIn ? null : _login,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  minimumSize: const Size.fromHeight(68),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(22),
+                                  ),
+                                ),
+                                child: _isLoggingIn
+                                    ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const SizedBox(
+                                            width: 22,
+                                            height: 22,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2.5,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Text(
+                                            _text(
+                                              'Processing...',
+                                              'جارٍ المعالجة...',
+                                            ),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : Text(
+                                        '${_text('Log in', 'تسجيل الدخول')}  →',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                              ),
+                            ),
+                            if (_getStatusMessage() != null) ...[
+                              const SizedBox(height: 16),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 14,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF5F5),
+                                  border: Border.all(
+                                    color: const Color(0xFFFFD1D1),
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.warning_amber_rounded,
+                                      color: Color(0xFFE54B4B),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        _getStatusMessage()!,
+                                        style: const TextStyle(
+                                          color: Color(0xFFC93A3A),
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ],
-              ),
+                ),
+                Container(
+                  width: double.infinity,
+                  color: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 16,
+                    horizontal: 24,
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          TextButton(
+                            onPressed: () {},
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                            ),
+                            child: Text(
+                              _text('Need Help?', 'تحتاج مساعدة؟'),
+                              style: const TextStyle(
+                                color: Color(0xFF6B7280),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            onPressed: () {},
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                            ),
+                            child: Text(
+                              _text('Terms & Conditions', 'الشروط والأحكام'),
+                              style: const TextStyle(
+                                color: Color(0xFF6B7280),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _text(
+                          '© 2026 AlKhoder Autocar. All rights reserved.',
+                          '© 2026 الخضر للسيارات. جميع الحقوق محفوظة.',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFF9CA3AF),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
+}
+
+class _LoginBackdrop extends StatelessWidget {
+  const _LoginBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(painter: _LoginBackdropPainter());
+  }
+}
+
+class _LoginBackdropPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paleBlue = Paint()..color = const Color(0xFFECF4F7);
+    final paleTeal = Paint()..color = const Color(0xFFE6F0F2);
+    final line = Paint()
+      ..color = const Color(0xFFB9D3DA)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4;
+
+    canvas.drawCircle(
+      Offset(-size.width * .24, -size.width * .18),
+      size.width * .73,
+      paleBlue,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 1.18, size.height * .47),
+      size.width * .55,
+      paleTeal,
+    );
+    canvas.drawCircle(
+      Offset(-size.width * .20, size.height * 1.03),
+      size.width * .43,
+      paleTeal,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 1.12, size.height * .94),
+      size.width * .51,
+      paleBlue,
+    );
+
+    canvas.drawArc(
+      Rect.fromCircle(
+        center: Offset(-size.width * .24, -size.width * .18),
+        radius: size.width * .73,
+      ),
+      -.1,
+      1.45,
+      false,
+      line,
+    );
+    canvas.drawArc(
+      Rect.fromCircle(
+        center: Offset(size.width * 1.18, size.height * .47),
+        radius: size.width * .55,
+      ),
+      1.9,
+      1.45,
+      false,
+      line,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class TwoFactorPage extends StatefulWidget {
@@ -1967,9 +2111,9 @@ class _OdooWebViewPageState extends State<OdooWebViewPage> {
       } catch (_) {}
       _downloadNotifier.value = null;
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Download failed: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Download failed: $error')));
     }
   }
 
@@ -2153,7 +2297,8 @@ class OdooAttachmentDownloader {
     request.headers.addAll({
       // Prefer the live WebView cookie (passed as cookieOverride on Android);
       // fall back to the stored session_id for iOS.
-      HttpHeaders.cookieHeader: (cookieOverride != null && cookieOverride.isNotEmpty)
+      HttpHeaders.cookieHeader:
+          (cookieOverride != null && cookieOverride.isNotEmpty)
           ? cookieOverride
           : 'session_id=$sessionId',
       HttpHeaders.acceptHeader: '*/*',
@@ -2197,8 +2342,9 @@ class OdooAttachmentDownloader {
 
     try {
       // Per-chunk timeout: if no data arrives for 30 s, give up.
-      await for (final chunk
-          in response.stream.timeout(const Duration(seconds: 30))) {
+      await for (final chunk in response.stream.timeout(
+        const Duration(seconds: 30),
+      )) {
         receivedBytes += chunk.length;
         sink.add(chunk);
         final int? progress = expectedBytes > 0
@@ -2265,7 +2411,9 @@ class OdooAttachmentDownloader {
       // appears in the user's Downloads app.
       try {
         const channel = MethodChannel('com.khdr/downloader');
-        final path = await channel.invokeMethod<String>('getPublicDownloadsPath');
+        final path = await channel.invokeMethod<String>(
+          'getPublicDownloadsPath',
+        );
         if (path != null && path.isNotEmpty) {
           final dir = Directory(path);
           if (!await dir.exists()) await dir.create(recursive: true);
@@ -2291,13 +2439,27 @@ class OdooAttachmentDownloader {
   }
 
   bool _isImageDownload(String fileName, String contentType) {
-    if (contentType.split(';').first.trim().toLowerCase().startsWith('image/')) {
+    if (contentType
+        .split(';')
+        .first
+        .trim()
+        .toLowerCase()
+        .startsWith('image/')) {
       return true;
     }
     final extension = fileName.split('.').last.toLowerCase();
     return const {
-      'avif', 'bmp', 'gif', 'heic', 'heif', 'jpeg', 'jpg', 'png', 'tif',
-      'tiff', 'webp',
+      'avif',
+      'bmp',
+      'gif',
+      'heic',
+      'heif',
+      'jpeg',
+      'jpg',
+      'png',
+      'tif',
+      'tiff',
+      'webp',
     }.contains(extension);
   }
 
